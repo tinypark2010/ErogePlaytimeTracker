@@ -48,6 +48,9 @@ jobs:
           $cargoVersion = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
           if ($cargoVersion -ne $version) { throw "Cargo.toml version does not match package.json" }
 
+      - name: Generate and audit third-party license notices
+        run: npm run licenses
+
       - name: Frontend checks
         run: |
           npm run check
@@ -65,9 +68,6 @@ jobs:
         with:
           command: check licenses sources
           arguments: --manifest-path src-tauri/Cargo.toml
-
-      - name: Generate and audit third-party license notices
-        run: npm run licenses
 
       - name: Build installer and publish GitHub Release
         uses: tauri-apps/tauri-action@v1
