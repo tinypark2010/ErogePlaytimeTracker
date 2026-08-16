@@ -176,6 +176,21 @@ pub fn delete_focus_interval(state: State<AppState>, id: i64) -> Cmd<()> {
     state.db.delete_interval(id).map_err(err)
 }
 #[tauri::command]
+pub fn list_game_timestamps(state: State<AppState>, game_id: i64) -> Cmd<Vec<GameTimestamp>> {
+    state.db.timestamps(game_id).map_err(err)
+}
+#[tauri::command]
+pub fn create_game_timestamp(state: State<AppState>, game_id: i64, name: String) -> Cmd<i64> {
+    state
+        .db
+        .create_timestamp(game_id, &name, &chrono::Utc::now().to_rfc3339())
+        .map_err(err)
+}
+#[tauri::command]
+pub fn delete_game_timestamp(state: State<AppState>, id: i64) -> Cmd<()> {
+    state.db.delete_timestamp(id).map_err(err)
+}
+#[tauri::command]
 pub async fn fetch_erogamescape_metadata(value: String) -> Cmd<GameMetadata> {
     ErogameScapeProvider::new()
         .map_err(err)?

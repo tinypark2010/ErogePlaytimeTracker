@@ -17,6 +17,16 @@ CREATE TABLE focus_intervals(id INTEGER PRIMARY KEY, play_session_id INTEGER NOT
 CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX idx_games_brand ON games(brand_id);CREATE INDEX idx_exec_path ON game_executables(path);CREATE INDEX idx_session_game_time ON play_sessions(game_id,launched_at);CREATE INDEX idx_interval_session_time ON focus_intervals(play_session_id,started_at);
 "#;
+const MIGRATION_2: &str = r#"
+CREATE TABLE game_timestamps(
+    id INTEGER PRIMARY KEY,
+    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    marked_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_game_timestamps_game_time ON game_timestamps(game_id,marked_at);
+"#;
 
 impl Database {
     pub fn open(path: &Path) -> Result<Self> {
@@ -48,6 +58,15 @@ impl Database {
         if !done {
             tx.execute_batch(MIGRATION_1)?;
             tx.execute("INSERT INTO schema_migrations VALUES(1,?)", [now()])?;
+        }
+        let done: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=2)",
+            [],
+            |r| r.get(0),
+        )?;
+        if !done {
+            tx.execute_batch(MIGRATION_2)?;
+            tx.execute("INSERT INTO schema_migrations VALUES(2,?)", [now()])?;
         }
         tx.commit()?;
         Ok(())
@@ -330,6 +349,58 @@ impl Database {
             .execute("DELETE FROM focus_intervals WHERE id=?", [id])?;
         Ok(())
     }
+    pub fn create_timestamp(&self, game: i64, name: &str, marked_at: &str) -> Result<i64> {
+        let name = name.trim();
+        if name.is_empty() {
+            bail!("タイムスタンプ名を入力してください")
+        }
+        if name.chars().count() > 100 {
+            bail!("タイムスタンプ名は100文字以内にしてください")
+        }
+        DateTime::parse_from_rfc3339(marked_at).context("記録日時が不正です")?;
+        let c = self.0.lock();
+        let n = now();
+        c.execute(
+            "INSERT INTO game_timestamps(game_id,name,marked_at,created_at) VALUES(?,?,?,?)",
+            params![game, name, marked_at, n],
+        )?;
+        Ok(c.last_insert_rowid())
+    }
+    pub fn timestamps(&self, game: i64) -> Result<Vec<GameTimestamp>> {
+        let c = self.0.lock();
+        let mut query = c.prepare(
+            "SELECT id,game_id,name,marked_at FROM game_timestamps WHERE game_id=? ORDER BY marked_at,id",
+        )?;
+        let rows: Vec<(i64, i64, String, String)> = query
+            .query_map([game], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut previous = 0;
+        rows.into_iter()
+            .map(|(id, game_id, name, marked_at)| {
+                let playtime_seconds: i64 = c.query_row(
+                    "SELECT COALESCE(SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(f.ended_at,?),?)) AS INTEGER)-CAST(strftime('%s',f.started_at) AS INTEGER))),0) FROM focus_intervals f JOIN play_sessions s ON s.id=f.play_session_id WHERE s.game_id=? AND f.started_at<?",
+                    params![marked_at, marked_at, game_id, marked_at],
+                    |r| r.get(0),
+                )?;
+                let since_previous_seconds = (playtime_seconds - previous).max(0);
+                previous = playtime_seconds;
+                Ok(GameTimestamp {
+                    id,
+                    game_id,
+                    name,
+                    marked_at,
+                    playtime_seconds,
+                    since_previous_seconds,
+                })
+            })
+            .collect()
+    }
+    pub fn delete_timestamp(&self, id: i64) -> Result<()> {
+        self.0
+            .lock()
+            .execute("DELETE FROM game_timestamps WHERE id=?", [id])?;
+        Ok(())
+    }
     pub fn recover_orphans(&self, at: &str) -> Result<usize> {
         let mut c = self.0.lock();
         let tx = c.transaction()?;
@@ -522,6 +593,27 @@ mod tests {
                 .count(),
             2
         );
+    }
+    #[test]
+    fn timestamp_playtime_is_derived_from_focus_intervals() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        d.manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
+            .unwrap();
+        d.manual_session(g, "2026-01-01T02:00:00Z", "2026-01-01T03:00:00Z")
+            .unwrap();
+        d.create_timestamp(g, "共通ルート終了", "2026-01-01T00:30:00Z")
+            .unwrap();
+        let second = d
+            .create_timestamp(g, "個別ルート終了", "2026-01-01T02:15:00Z")
+            .unwrap();
+        let points = d.timestamps(g).unwrap();
+        assert_eq!(points[0].playtime_seconds, 1800);
+        assert_eq!(points[0].since_previous_seconds, 1800);
+        assert_eq!(points[1].playtime_seconds, 4500);
+        assert_eq!(points[1].since_previous_seconds, 2700);
+        d.delete_timestamp(second).unwrap();
+        assert_eq!(d.timestamps(g).unwrap().len(), 1);
     }
     #[test]
     fn brand_list_is_independent_from_game_filtering() {

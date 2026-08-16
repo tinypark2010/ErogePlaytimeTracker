@@ -4,6 +4,7 @@ export interface Executable {id:number;game_id:number;path:string;file_name:stri
 export interface GameDetail extends GameSummary {erogamescape_id:number|null;source_url:string|null;executables:Executable[]}
 export interface Session {id:number;game_id:number;launched_at:string;exited_at:string|null;needs_review:boolean;foreground_seconds:number;running_seconds:number|null}
 export interface FocusInterval {id:number;play_session_id:number;started_at:string;ended_at:string|null}
+export interface GameTimestamp {id:number;game_id:number;name:string;marked_at:string;playtime_seconds:number;since_previous_seconds:number}
 export interface Metadata {erogamescape_id:number;title:string;brand:string|null;release_date:string|null;thumbnail_url:string|null;source_url:string}
 export type Theme='dark'|'light'|'pink'|'blue';
 export interface Settings {autostart:boolean;reconciliation_seconds:number;close_to_tray:boolean;theme:Theme}

@@ -46,6 +46,15 @@ pub struct FocusInterval {
     pub started_at: String,
     pub ended_at: Option<String>,
 }
+#[derive(Debug, Clone, Serialize)]
+pub struct GameTimestamp {
+    pub id: i64,
+    pub game_id: i64,
+    pub name: String,
+    pub marked_at: String,
+    pub playtime_seconds: i64,
+    pub since_previous_seconds: i64,
+}
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateGameInput {
     pub title: String,

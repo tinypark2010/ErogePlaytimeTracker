@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { FocusInterval,GameDetail,GameSummary,Metadata,Session,Settings,SortKey,TrackingStatus } from './types';
+import type { FocusInterval,GameDetail,GameSummary,GameTimestamp,Metadata,Session,Settings,SortKey,TrackingStatus } from './types';
 export const api={
  listGames:(search='',brand='',sort:SortKey='last_played',descending=true)=>invoke<GameSummary[]>('list_games',{search,brand:brand||null,sort,descending}),
  listBrands:()=>invoke<string[]>('list_brands'),
@@ -14,6 +14,7 @@ export const api={
  deleteAllSessions:(gameId:number)=>invoke<number>('delete_all_sessions',{gameId}),
  createInterval:(sessionId:number,start:string,end:string)=>invoke<number>('create_focus_interval',{sessionId,start,end}),
  updateInterval:(id:number,start:string,end:string)=>invoke<void>('update_focus_interval',{id,start,end}), deleteInterval:(id:number)=>invoke<void>('delete_focus_interval',{id}),
+ timestamps:(gameId:number)=>invoke<GameTimestamp[]>('list_game_timestamps',{gameId}), createTimestamp:(gameId:number,name:string)=>invoke<number>('create_game_timestamp',{gameId,name}), deleteTimestamp:(id:number)=>invoke<void>('delete_game_timestamp',{id}),
  fetchMetadata:(value:string)=>invoke<Metadata>('fetch_erogamescape_metadata',{value}), refreshMetadata:(gameId:number)=>invoke<void>('refresh_game_metadata',{gameId}),
  settings:()=>invoke<Settings>('get_settings'), updateSettings:(settings:Settings)=>invoke<void>('update_settings',{settings}), status:()=>invoke<TrackingStatus>('get_tracking_status')
 };
