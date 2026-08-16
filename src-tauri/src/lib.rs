@@ -79,6 +79,7 @@ pub fn run() {
                 .items(&[&show, &status, &quit])
                 .build()?;
             TrayIconBuilder::with_id("tracker")
+                .icon(tauri::include_image!("icons/32x32.png"))
                 .menu(&menu)
                 .tooltip("Eroge Playtime Tracker")
                 .on_menu_event(|app, e| match e.id().as_ref() {
