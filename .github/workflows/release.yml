@@ -3,7 +3,7 @@ name: Release Windows installer
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
 
 permissions:
   contents: write
@@ -69,6 +69,7 @@ jobs:
 
       - name: Frontend checks
         run: |
+          npm run format:check
           npm run check
           npm run test
           npm run build

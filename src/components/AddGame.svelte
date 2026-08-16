@@ -1,11 +1,130 @@
 <script lang="ts">
- import {onDestroy} from 'svelte'; import {open} from '@tauri-apps/plugin-dialog'; import {api} from '../lib/api'; import type {Metadata} from '../lib/types'; export let ondone:(id:number)=>void;export let oncancel:()=>void;
- let lookup='',title='',brand='',release_date='',paths='',metadata:Metadata|null=null,fetchingMeta=false,saving=false,error='',toast='',toastError=false,toastTimer:number|undefined;
- function showToast(message:string,isError=false){toast=message;toastError=isError;if(toastTimer)clearTimeout(toastTimer);toastTimer=window.setTimeout(()=>toast='',4000)}
- onDestroy(()=>{if(toastTimer)clearTimeout(toastTimer)})
- async function fetchMeta(){if(fetchingMeta||saving)return;fetchingMeta=true;error='';try{metadata=await api.fetchMetadata(lookup);title=metadata.title;brand=metadata.brand??'';release_date=metadata.release_date??'';showToast('ErogameScapeからゲーム情報を取得しました')}catch(e){error=String(e);showToast(`情報を取得できませんでした: ${String(e)}`,true)}finally{fetchingMeta=false}}
- async function save(){if(!title.trim()||fetchingMeta||saving)return;saving=true;error='';try{const id=await api.createGame({title,brand:brand||undefined,release_date:release_date||undefined,thumbnail_url:metadata?.thumbnail_url??undefined,erogamescape_id:metadata?.erogamescape_id,source_url:metadata?.source_url,executable_paths:paths.split('\n').map(x=>x.trim()).filter(Boolean)});ondone(id)}catch(e){error=String(e)}finally{saving=false}}
- async function selectExecutables(){const selected=await open({title:'ゲームの実行ファイルを選択',multiple:true,directory:false,filters:[{name:'ゲーム実行ファイル',extensions:['exe','bin']},{name:'すべてのファイル',extensions:['*']}]});if(selected){const current=paths.split('\n').map(x=>x.trim()).filter(Boolean);paths=[...new Set([...current,...selected])].join('\n')}}
+  import { onDestroy } from 'svelte';
+  import { open } from '@tauri-apps/plugin-dialog';
+  import { api } from '../lib/api';
+  import type { Metadata } from '../lib/types';
+  export let ondone: (id: number) => void;
+  export let oncancel: () => void;
+  let lookup = '',
+    title = '',
+    brand = '',
+    release_date = '',
+    paths = '',
+    metadata: Metadata | null = null,
+    fetchingMeta = false,
+    saving = false,
+    error = '',
+    toast = '',
+    toastError = false,
+    toastTimer: number | undefined;
+  function showToast(message: string, isError = false) {
+    toast = message;
+    toastError = isError;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => (toast = ''), 4000);
+  }
+  onDestroy(() => {
+    if (toastTimer) clearTimeout(toastTimer);
+  });
+  async function fetchMeta() {
+    if (fetchingMeta || saving) return;
+    fetchingMeta = true;
+    error = '';
+    try {
+      metadata = await api.fetchMetadata(lookup);
+      title = metadata.title;
+      brand = metadata.brand ?? '';
+      release_date = metadata.release_date ?? '';
+      showToast('ErogameScapeからゲーム情報を取得しました');
+    } catch (e) {
+      error = String(e);
+      showToast(`情報を取得できませんでした: ${String(e)}`, true);
+    } finally {
+      fetchingMeta = false;
+    }
+  }
+  async function save() {
+    if (!title.trim() || fetchingMeta || saving) return;
+    saving = true;
+    error = '';
+    try {
+      const id = await api.createGame({
+        title,
+        brand: brand || undefined,
+        release_date: release_date || undefined,
+        thumbnail_url: metadata?.thumbnail_url ?? undefined,
+        erogamescape_id: metadata?.erogamescape_id,
+        source_url: metadata?.source_url,
+        executable_paths: paths
+          .split('\n')
+          .map((x) => x.trim())
+          .filter(Boolean),
+      });
+      ondone(id);
+    } catch (e) {
+      error = String(e);
+    } finally {
+      saving = false;
+    }
+  }
+  async function selectExecutables() {
+    const selected = await open({
+      title: 'ゲームの実行ファイルを選択',
+      multiple: true,
+      directory: false,
+      filters: [
+        { name: 'ゲーム実行ファイル', extensions: ['exe', 'bin'] },
+        { name: 'すべてのファイル', extensions: ['*'] },
+      ],
+    });
+    if (selected) {
+      const current = paths
+        .split('\n')
+        .map((x) => x.trim())
+        .filter(Boolean);
+      paths = [...new Set([...current, ...selected])].join('\n');
+    }
+  }
 </script>
-<section class="panel form"><h1>ゲーム追加</h1><label>ErogameScape URL / game ID<div class="row"><input bind:value={lookup} placeholder="https://erogamescape.dyndns.org/...game=1234 または 1234"/><button class="metadata-lookup" disabled={fetchingMeta||saving||!lookup.trim()} onclick={fetchMeta}>{#if fetchingMeta}<span class="spinner" aria-hidden="true"></span>取得中…{:else}取得{/if}</button></div></label><p class="hint">取得できない場合も下の項目から手動登録できます。</p><label>タイトル<input bind:value={title}/></label><label>ブランド<input bind:value={brand}/></label><label>発売日<input type="date" bind:value={release_date}/></label><label>実行ファイル（複数選択可能）<textarea rows="5" bind:value={paths} placeholder="選択したexeのフルパスが表示されます"></textarea><button type="button" class="file-picker" onclick={selectExecutables}>参照…</button></label>{#if error}<p class="error">{error}</p>{/if}<div class="actions"><button class="primary" disabled={fetchingMeta||saving||!title.trim()} onclick={save}>{saving?'登録中…':'登録'}</button><button disabled={saving} onclick={oncancel}>キャンセル</button></div></section>
-{#if toast}<div class:error-toast={toastError} class="toast" role="status"><span>{toastError?'!':'✓'}</span><p>{toast}</p><button aria-label="通知を閉じる" onclick={()=>toast=''}>×</button></div>{/if}
+
+<section class="panel form">
+  <h1>ゲーム追加</h1>
+  <label
+    >ErogameScape URL / game ID
+    <div class="row">
+      <input
+        bind:value={lookup}
+        placeholder="https://erogamescape.dyndns.org/...game=1234 または 1234"
+      /><button
+        class="metadata-lookup"
+        disabled={fetchingMeta || saving || !lookup.trim()}
+        onclick={fetchMeta}
+        >{#if fetchingMeta}<span class="spinner" aria-hidden="true"
+          ></span>取得中…{:else}取得{/if}</button
+      >
+    </div></label
+  >
+  <p class="hint">取得できない場合も下の項目から手動登録できます。</p>
+  <label>タイトル<input bind:value={title} /></label><label
+    >ブランド<input bind:value={brand} /></label
+  ><label>発売日<input type="date" bind:value={release_date} /></label><label
+    >実行ファイル（複数選択可能）<textarea
+      rows="5"
+      bind:value={paths}
+      placeholder="選択したexeのフルパスが表示されます"></textarea><button
+      type="button"
+      class="file-picker"
+      onclick={selectExecutables}>参照…</button
+    ></label
+  >{#if error}<p class="error">{error}</p>{/if}
+  <div class="actions">
+    <button class="primary" disabled={fetchingMeta || saving || !title.trim()} onclick={save}
+      >{saving ? '登録中…' : '登録'}</button
+    ><button disabled={saving} onclick={oncancel}>キャンセル</button>
+  </div>
+</section>
+{#if toast}<div class:error-toast={toastError} class="toast" role="status">
+    <span>{toastError ? '!' : '✓'}</span>
+    <p>{toast}</p>
+    <button aria-label="通知を閉じる" onclick={() => (toast = '')}>×</button>
+  </div>{/if}

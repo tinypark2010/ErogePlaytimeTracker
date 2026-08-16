@@ -26,10 +26,13 @@ npm run tauri dev
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
+npm run format:check
 npm run check
 npm run test
 npm run build
 ```
+
+TypeScript、Svelte、CSS、JSONなどを整形する場合は `npm run format` を実行します。
 
 Rustテストにはgame単位のsession遷移、launcherを含む複数exe、複数ゲーム間のforeground遷移、集計・重複validation、fixtureベースのErogameScape parser検証が含まれます。
 
