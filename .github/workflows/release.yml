@@ -1,0 +1,88 @@
+name: Release Windows installer
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify tag matches application version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match package version v$version"
+          }
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ($tauriVersion -ne $version) { throw "tauri.conf.json version does not match package.json" }
+          $cargoVersion = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
+          if ($cargoVersion -ne $version) { throw "Cargo.toml version does not match package.json" }
+
+      - name: Frontend checks
+        run: |
+          npm run check
+          npm run test
+          npm run build
+
+      - name: Rust checks
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Audit Rust dependency licenses
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses sources
+          arguments: --manifest-path src-tauri/Cargo.toml
+
+      - name: Generate and audit third-party license notices
+        run: npm run licenses
+
+      - name: Build installer and publish GitHub Release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: npm run tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: Eroge Playtime Tracker ${{ github.ref_name }}
+          releaseBody: |
+            Windows 10 / 11 x64向けインストーラーです。
+            ダウンロード後、`setup.exe`を実行してください。
+
+            コード署名は未導入のため、Windows SmartScreenの警告が表示される場合があります。
+          generateReleaseNotes: true
+          releaseDraft: false
+          prerelease: false
+          releaseAssetNamePattern: ErogePlaytimeTracker_[version]_[arch][setup].[ext]

@@ -63,6 +63,23 @@ foregroundは `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` を主な通知経路�
 
 game IDまたはgame URLからtitle、brand、発売日、package imageを取得します。HTML selectorは `GameMetadataProvider` / `ErogameScapeProvider` 内に隔離されています。thumbnailは一度だけcacheされ、networkやparser failureはtracking loopへ影響しません。サイトへの自動アクセスは明示的な取得・更新操作時だけです。
 
+本アプリはErogameScapeおよび各ゲームメーカーの公式アプリではありません。取得したpackage imageは利用者のPC内にのみcacheし、repositoryやinstallerには同梱しません。各画像・ゲーム情報に関する権利は、それぞれの権利者に帰属します。サイト運営者または権利者から要請があった場合は、連携方法を見直します。
+
+## Release
+
+バージョンを `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` の3箇所で一致させ、同じバージョンのtagをpushするとGitHub ActionsがWindows x64 installerを自動生成します。
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+workflowはfrontend/Rustのcheck・test、依存ライセンス監査、第三者ライセンス一覧生成を通過した場合だけGitHub Releaseを公開します。生成されたNSIS installerには `LICENSE` と `THIRD_PARTY_LICENSES.txt` が同梱されます。現時点ではコード署名を行っていないため、Windows SmartScreenの警告が表示される場合があります。
+
+## License
+
+アプリ本体は [MIT License](LICENSE) で提供します。Rustおよびnpm依存関係にはそれぞれのライセンスが適用され、配布時の一覧は `npm run licenses` で生成します。
+
 ## 既知の制約
 
 - Windows専用です。管理者processなど、OSがimage path取得を拒否するprocessは検出できない場合があります。
