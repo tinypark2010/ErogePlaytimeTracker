@@ -228,10 +228,13 @@ pub fn update_settings(
     }
     use tauri_plugin_autostart::ManagerExt;
     let manager = app.autolaunch();
-    if settings.autostart {
-        manager.enable().map_err(err)?
-    } else {
-        manager.disable().map_err(err)?
+    let autostart_enabled = manager.is_enabled().map_err(err)?;
+    if settings.autostart != autostart_enabled {
+        if settings.autostart {
+            manager.enable().map_err(err)?
+        } else {
+            manager.disable().map_err(err)?
+        }
     }
     state
         .db
