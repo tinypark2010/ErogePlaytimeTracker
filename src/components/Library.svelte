@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
-  import { duration, lastPlayed, imageSrc } from '../lib/time';
+  import { duration, lastPlayed, imageSrc, playStatusLabel, playStatusOptions } from '../lib/time';
   import type { GameSummary, SortKey } from '../lib/types';
   type ViewMode = 'grid' | 'list';
   export let refresh = 0;
@@ -9,6 +9,7 @@
   let games: GameSummary[] = [],
     search = '',
     brand = '',
+    playStatus = '',
     sort: SortKey = 'last_played',
     descending = true,
     error = '',
@@ -16,13 +17,13 @@
   let loadedKey = '';
   async function load() {
     try {
-      games = await api.listGames(search, brand, sort, descending);
+      games = await api.listGames(search, brand, playStatus, sort, descending);
     } catch (e) {
       error = String(e);
     }
   }
   $: {
-    const key = `${refresh}|${search}|${brand}|${sort}|${descending}`;
+    const key = `${refresh}|${search}|${brand}|${playStatus}|${sort}|${descending}`;
     if (key !== loadedKey) {
       loadedKey = key;
       load();
@@ -61,6 +62,12 @@
   ><label
     ><span>ブランド</span><select bind:value={brand}
       ><option value="">すべてのブランド</option>{#each brands as b}<option>{b}</option
+        >{/each}</select
+    ></label
+  ><label
+    ><span>プレイ状況</span><select bind:value={playStatus}
+      ><option value="">すべての状況</option>{#each playStatusOptions as option}<option
+          value={option.value}>{option.label}</option
         >{/each}</select
     ></label
   ><label
@@ -110,6 +117,7 @@
           <div class="card-info">
             <h2>{g.title}</h2>
             <p>{g.brand ?? 'ブランド未設定'}</p>
+            <span class="play-status status-{g.play_status}">{playStatusLabel(g.play_status)}</span>
             <strong>{duration(g.total_playtime_seconds)}</strong><small
               >最終: {lastPlayed(g.last_played)} ・ {g.session_count}回</small
             >
@@ -140,6 +148,7 @@
                   ・ {g.release_date}</span
                 >{/if}
             </p>
+            <span class="play-status status-{g.play_status}">{playStatusLabel(g.play_status)}</span>
           </div>
           <div class="library-row-stats">
             <strong>{duration(g.total_playtime_seconds)}</strong><small

@@ -3,8 +3,16 @@
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
   import { api } from '../lib/api';
-  import { duration, local, inputTime, utc, imageSrc } from '../lib/time';
-  import type { FocusInterval, GameDetail, GameTimestamp, Session } from '../lib/types';
+  import {
+    duration,
+    local,
+    inputTime,
+    utc,
+    imageSrc,
+    playStatusLabel,
+    playStatusOptions,
+  } from '../lib/time';
+  import type { FocusInterval, GameDetail, GameTimestamp, PlayStatus, Session } from '../lib/types';
   type ConfirmAction = 'session' | 'all-sessions' | 'game';
   export let gameId: number;
   export let onback: () => void;
@@ -232,6 +240,16 @@
       error = String(e);
     }
   }
+  async function updatePlayStatus(status: PlayStatus) {
+    if (!game || game.play_status === status) return;
+    try {
+      await api.updateGamePlayStatus(game.id, status);
+      await load();
+      showToast(`プレイ状況を「${playStatusLabel(status)}」に変更しました`);
+    } catch (e) {
+      showToast(`プレイ状況を変更できませんでした: ${String(e)}`, true);
+    }
+  }
   async function createTimestamp() {
     const name = timestampName.trim();
     if (!name) return;
@@ -281,6 +299,9 @@
       <div>
         <h1>{game.title}</h1>
         <p>{game.brand ?? 'ブランド未設定'} ・ {game.release_date ?? '発売日未設定'}</p>
+        <span class="play-status status-{game.play_status}"
+          >{playStatusLabel(game.play_status)}</span
+        >
         <small>プレイ時間</small>
         <h2>{duration(game.total_playtime_seconds)}</h2>
         <p>{game.session_count} セッション</p>
@@ -314,6 +335,21 @@
           <div>
             <dt>ブランド</dt>
             <dd>{game.brand ?? '未設定'}</dd>
+          </div>
+          <div>
+            <dt>プレイ状況</dt>
+            <dd>
+              <select
+                class="play-status-select"
+                value={game.play_status}
+                onchange={(event) =>
+                  updatePlayStatus((event.currentTarget as HTMLSelectElement).value as PlayStatus)}
+              >
+                {#each playStatusOptions as option}<option value={option.value}
+                    >{option.label}</option
+                  >{/each}
+              </select>
+            </dd>
           </div>
           <div>
             <dt>ErogameScape URL</dt>

@@ -12,6 +12,7 @@ pub struct GameSummary {
     pub total_running_seconds: i64,
     pub last_played: Option<String>,
     pub session_count: i64,
+    pub play_status: String,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct Executable {

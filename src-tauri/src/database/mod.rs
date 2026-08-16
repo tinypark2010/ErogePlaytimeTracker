@@ -27,6 +27,11 @@ CREATE TABLE game_timestamps(
 );
 CREATE INDEX idx_game_timestamps_game_time ON game_timestamps(game_id,marked_at);
 "#;
+const MIGRATION_3: &str = r#"
+ALTER TABLE games ADD COLUMN play_status TEXT NOT NULL DEFAULT 'unplayed'
+    CHECK(play_status IN ('unplayed','playing','completed','retired'));
+CREATE INDEX idx_games_play_status ON games(play_status);
+"#;
 
 impl Database {
     pub fn open(path: &Path) -> Result<Self> {
@@ -67,6 +72,15 @@ impl Database {
         if !done {
             tx.execute_batch(MIGRATION_2)?;
             tx.execute("INSERT INTO schema_migrations VALUES(2,?)", [now()])?;
+        }
+        let done: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=3)",
+            [],
+            |r| r.get(0),
+        )?;
+        if !done {
+            tx.execute_batch(MIGRATION_3)?;
+            tx.execute("INSERT INTO schema_migrations VALUES(3,?)", [now()])?;
         }
         tx.commit()?;
         Ok(())
@@ -149,6 +163,7 @@ impl Database {
         &self,
         search: &str,
         brand: Option<&str>,
+        play_status: Option<&str>,
         sort: &str,
         descending: bool,
     ) -> Result<Vec<GameSummary>> {
@@ -170,7 +185,10 @@ impl Database {
         let like = format!("%{}%", search);
         let c = self.0.lock();
         let mut q = c.prepare(&sql)?;
-        let rows = q.query_map(params![like, brand, brand], game_row)?;
+        let rows = q.query_map(
+            params![like, brand, brand, play_status, play_status],
+            game_row,
+        )?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
     pub fn list_brands(&self) -> Result<Vec<String>> {
@@ -186,7 +204,14 @@ impl Database {
         let summary = c
             .query_row(
                 &format!("{} AND g.id=?", GAME_QUERY),
-                params!["%", Option::<String>::None, Option::<String>::None, id],
+                params![
+                    "%",
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    id
+                ],
                 game_row,
             )
             .optional()?
@@ -349,6 +374,19 @@ impl Database {
             .execute("DELETE FROM focus_intervals WHERE id=?", [id])?;
         Ok(())
     }
+    pub fn update_play_status(&self, game: i64, status: &str) -> Result<()> {
+        if !matches!(status, "unplayed" | "playing" | "completed" | "retired") {
+            bail!("未対応のプレイ状況です")
+        }
+        let changed = self.0.lock().execute(
+            "UPDATE games SET play_status=?,updated_at=? WHERE id=?",
+            params![status, now(), game],
+        )?;
+        if changed == 0 {
+            bail!("ゲームが見つかりません")
+        }
+        Ok(())
+    }
     pub fn create_timestamp(&self, game: i64, name: &str, marked_at: &str) -> Result<i64> {
         let name = name.trim();
         if name.is_empty() {
@@ -451,8 +489,9 @@ const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_
 COALESCE((SELECT SUM(CAST(strftime('%s',COALESCE(f.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',f.started_at) AS INTEGER)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id),0) total_playtime_seconds,
 COALESCE((SELECT SUM(CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER)) FROM play_sessions s WHERE s.game_id=g.id AND s.exited_at IS NOT NULL),0) total_running_seconds,
 (SELECT MAX(COALESCE(f.ended_at,f.started_at)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id) last_played,
-(SELECT COUNT(*) FROM play_sessions s WHERE s.game_id=g.id) session_count
-FROM games g LEFT JOIN brands b ON b.id=g.brand_id WHERE g.title LIKE ? AND (? IS NULL OR b.name=?)";
+(SELECT COUNT(*) FROM play_sessions s WHERE s.game_id=g.id) session_count,
+g.play_status
+FROM games g LEFT JOIN brands b ON b.id=g.brand_id WHERE g.title LIKE ? AND (? IS NULL OR b.name=?) AND (? IS NULL OR g.play_status=?)";
 fn game_row(r: &rusqlite::Row) -> rusqlite::Result<GameSummary> {
     Ok(GameSummary {
         id: r.get(0)?,
@@ -465,6 +504,7 @@ fn game_row(r: &rusqlite::Row) -> rusqlite::Result<GameSummary> {
         total_running_seconds: r.get(7)?,
         last_played: r.get(8)?,
         session_count: r.get(9)?,
+        play_status: r.get(10)?,
     })
 }
 fn now() -> String {
@@ -561,7 +601,9 @@ mod tests {
         let g = game(&d);
         d.manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
             .unwrap();
-        let x = d.list_games("", None, "total_playtime", true).unwrap();
+        let x = d
+            .list_games("", None, None, "total_playtime", true)
+            .unwrap();
         assert_eq!(x[0].total_playtime_seconds, 3600);
         assert_eq!(x[0].session_count, 1);
     }
@@ -634,9 +676,38 @@ mod tests {
         .unwrap();
         assert_eq!(d.list_brands().unwrap(), vec!["Another Brand", "B"]);
         assert_eq!(
-            d.list_games("", Some("B"), "title", false).unwrap().len(),
+            d.list_games("", Some("B"), None, "title", false)
+                .unwrap()
+                .len(),
             1
         );
         assert_eq!(d.list_brands().unwrap().len(), 2);
+    }
+    #[test]
+    fn play_status_defaults_updates_and_filters() {
+        let d = Database::memory().unwrap();
+        let first = game(&d);
+        let second = d
+            .create_game(
+                &CreateGameInput {
+                    title: "Completed".into(),
+                    brand: Some("B".into()),
+                    release_date: None,
+                    thumbnail_url: None,
+                    erogamescape_id: None,
+                    source_url: None,
+                    executable_paths: vec![],
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(d.get_game(first).unwrap().summary.play_status, "unplayed");
+        d.update_play_status(second, "completed").unwrap();
+        let completed = d
+            .list_games("", None, Some("completed"), "title", false)
+            .unwrap();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].id, second);
+        assert!(d.update_play_status(first, "invalid").is_err());
     }
 }

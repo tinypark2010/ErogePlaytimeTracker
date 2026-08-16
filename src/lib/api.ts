@@ -7,12 +7,25 @@ import type {
   Metadata,
   Session,
   Settings,
+  PlayStatus,
   SortKey,
   TrackingStatus,
 } from './types';
 export const api = {
-  listGames: (search = '', brand = '', sort: SortKey = 'last_played', descending = true) =>
-    invoke<GameSummary[]>('list_games', { search, brand: brand || null, sort, descending }),
+  listGames: (
+    search = '',
+    brand = '',
+    playStatus = '',
+    sort: SortKey = 'last_played',
+    descending = true,
+  ) =>
+    invoke<GameSummary[]>('list_games', {
+      search,
+      brand: brand || null,
+      playStatus: playStatus || null,
+      sort,
+      descending,
+    }),
   listBrands: () => invoke<string[]>('list_brands'),
   getGame: (id: number) => invoke<GameDetail>('get_game', { id }),
   createGame: (input: {
@@ -28,6 +41,8 @@ export const api = {
     id: number,
     input: { title: string; brand?: string; release_date?: string; source_url?: string },
   ) => invoke<void>('update_game', { id, input }),
+  updateGamePlayStatus: (id: number, status: PlayStatus) =>
+    invoke<void>('update_game_play_status', { id, status }),
   openExternalUrl: (url: string) => invoke<void>('open_external_url', { url }),
   deleteGame: (id: number) => invoke<void>('delete_game', { id }),
   addExecutable: (gameId: number, path: string) =>

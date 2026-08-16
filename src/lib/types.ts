@@ -6,6 +6,7 @@ export type SortKey =
   | 'total_playtime'
   | 'last_played'
   | 'session_count';
+export type PlayStatus = 'unplayed' | 'playing' | 'completed' | 'retired';
 export interface GameSummary {
   id: number;
   title: string;
@@ -17,6 +18,7 @@ export interface GameSummary {
   total_running_seconds: number;
   last_played: string | null;
   session_count: number;
+  play_status: PlayStatus;
 }
 export interface Executable {
   id: number;

@@ -124,6 +124,7 @@ pub fn run() {
             commands::get_game,
             commands::create_game,
             commands::update_game,
+            commands::update_game_play_status,
             commands::open_external_url,
             commands::delete_game,
             commands::add_game_executable,

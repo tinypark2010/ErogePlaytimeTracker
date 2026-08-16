@@ -13,12 +13,19 @@ pub fn list_games(
     state: State<AppState>,
     search: String,
     brand: Option<String>,
+    play_status: Option<String>,
     sort: String,
     descending: bool,
 ) -> Cmd<Vec<GameSummary>> {
     state
         .db
-        .list_games(&search, brand.as_deref(), &sort, descending)
+        .list_games(
+            &search,
+            brand.as_deref(),
+            play_status.as_deref(),
+            &sort,
+            descending,
+        )
         .map_err(err)
 }
 #[tauri::command]
@@ -47,6 +54,10 @@ pub async fn create_game(state: State<'_, AppState>, input: CreateGameInput) -> 
 #[tauri::command]
 pub fn update_game(state: State<AppState>, id: i64, input: UpdateGameInput) -> Cmd<()> {
     state.db.update_game(id, &input).map_err(err)
+}
+#[tauri::command]
+pub fn update_game_play_status(state: State<AppState>, id: i64, status: String) -> Cmd<()> {
+    state.db.update_play_status(id, &status).map_err(err)
 }
 #[tauri::command]
 pub fn open_external_url(url: String) -> Cmd<()> {

@@ -1,4 +1,16 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
+import type { PlayStatus } from './types';
+
+export const playStatusOptions: Array<{ value: PlayStatus; label: string }> = [
+  { value: 'unplayed', label: '未プレイ' },
+  { value: 'playing', label: '攻略中' },
+  { value: 'completed', label: 'クリア済み' },
+  { value: 'retired', label: 'リタイア' },
+];
+
+export function playStatusLabel(status: PlayStatus) {
+  return playStatusOptions.find((option) => option.value === status)?.label ?? status;
+}
 
 export function duration(seconds: number | null) {
   if (seconds === null) return '実行中';
