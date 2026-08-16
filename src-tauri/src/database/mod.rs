@@ -1,0 +1,550 @@
+use crate::models::*;
+use anyhow::{Context, Result, bail};
+use chrono::{DateTime, Utc};
+use parking_lot::Mutex;
+use rusqlite::{Connection, OptionalExtension, params};
+use std::{path::Path, sync::Arc};
+
+#[derive(Clone)]
+pub struct Database(Arc<Mutex<Connection>>);
+const MIGRATION_1: &str = r#"
+CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+CREATE TABLE brands(id INTEGER PRIMARY KEY, erogamescape_id INTEGER, name TEXT NOT NULL COLLATE NOCASE UNIQUE);
+CREATE TABLE games(id INTEGER PRIMARY KEY, erogamescape_id INTEGER UNIQUE, title TEXT NOT NULL, brand_id INTEGER REFERENCES brands(id) ON DELETE SET NULL, release_date TEXT, thumbnail_path TEXT, source_url TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE game_executables(id INTEGER PRIMARY KEY, game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE, path TEXT NOT NULL COLLATE NOCASE UNIQUE, file_name TEXT NOT NULL COLLATE NOCASE, created_at TEXT NOT NULL);
+CREATE TABLE play_sessions(id INTEGER PRIMARY KEY, game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE, launched_at TEXT NOT NULL, exited_at TEXT, needs_review INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, CHECK(exited_at IS NULL OR exited_at >= launched_at));
+CREATE TABLE focus_intervals(id INTEGER PRIMARY KEY, play_session_id INTEGER NOT NULL REFERENCES play_sessions(id) ON DELETE CASCADE, started_at TEXT NOT NULL, ended_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, CHECK(ended_at IS NULL OR ended_at >= started_at));
+CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX idx_games_brand ON games(brand_id);CREATE INDEX idx_exec_path ON game_executables(path);CREATE INDEX idx_session_game_time ON play_sessions(game_id,launched_at);CREATE INDEX idx_interval_session_time ON focus_intervals(play_session_id,started_at);
+"#;
+
+impl Database {
+    pub fn open(path: &Path) -> Result<Self> {
+        let conn = Connection::open(path)
+            .with_context(|| format!("databaseを開けません: {}", path.display()))?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        let db = Self(Arc::new(Mutex::new(conn)));
+        db.migrate()?;
+        Ok(db)
+    }
+    #[cfg(test)]
+    pub fn memory() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        let db = Self(Arc::new(Mutex::new(conn)));
+        db.migrate()?;
+        Ok(db)
+    }
+    fn migrate(&self) -> Result<()> {
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);")?;
+        let done: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=1)",
+            [],
+            |r| r.get(0),
+        )?;
+        if !done {
+            tx.execute_batch(MIGRATION_1)?;
+            tx.execute("INSERT INTO schema_migrations VALUES(1,?)", [now()])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn create_game(&self, input: &CreateGameInput, thumbnail: Option<&str>) -> Result<i64> {
+        if input.title.trim().is_empty() {
+            bail!("タイトルは必須です")
+        };
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let brand = brand_id(&tx, input.brand.as_deref())?;
+        let n = now();
+        tx.execute("INSERT INTO games(erogamescape_id,title,brand_id,release_date,thumbnail_path,source_url,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",params![input.erogamescape_id,input.title.trim(),brand,input.release_date,thumbnail,input.source_url,n,n])?;
+        let id = tx.last_insert_rowid();
+        for p in &input.executable_paths {
+            insert_executable(&tx, id, p)?
+        }
+        tx.commit()?;
+        Ok(id)
+    }
+    pub fn update_game(&self, id: i64, input: &UpdateGameInput) -> Result<()> {
+        if input.title.trim().is_empty() {
+            bail!("タイトルは必須です")
+        };
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let brand = brand_id(&tx, input.brand.as_deref())?;
+        let source_url = input
+            .source_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let erogamescape_id = source_url
+            .and_then(|value| reqwest::Url::parse(value).ok())
+            .and_then(|url| {
+                url.query_pairs()
+                    .find(|(key, _)| key == "game")
+                    .and_then(|(_, value)| value.parse::<i64>().ok())
+            });
+        tx.execute(
+            "UPDATE games SET title=?,brand_id=?,release_date=?,source_url=?,erogamescape_id=COALESCE(?,erogamescape_id),updated_at=? WHERE id=?",
+            params![input.title.trim(), brand, input.release_date, source_url, erogamescape_id, now(), id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn delete_game(&self, id: i64) -> Result<()> {
+        self.0
+            .lock()
+            .execute("DELETE FROM games WHERE id=?", [id])?;
+        Ok(())
+    }
+    pub fn add_executable(&self, game: i64, path: &str) -> Result<()> {
+        insert_executable(&self.0.lock(), game, path)
+    }
+    pub fn remove_executable(&self, id: i64) -> Result<()> {
+        self.0
+            .lock()
+            .execute("DELETE FROM game_executables WHERE id=?", [id])?;
+        Ok(())
+    }
+    pub fn launcher_path(&self, game: i64) -> Result<String> {
+        self.0
+            .lock()
+            .query_row(
+                "SELECT path FROM game_executables WHERE game_id=? ORDER BY id LIMIT 1",
+                [game],
+                |row| row.get(0),
+            )
+            .optional()?
+            .context("起動する実行ファイルが登録されていません")
+    }
+    pub fn registered_executables(&self) -> Result<Vec<(i64, String, String)>> {
+        let c = self.0.lock();
+        let mut q=c.prepare("SELECT e.game_id,g.title,e.path FROM game_executables e JOIN games g ON g.id=e.game_id")?;
+        Ok(q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+    pub fn list_games(
+        &self,
+        search: &str,
+        brand: Option<&str>,
+        sort: &str,
+        descending: bool,
+    ) -> Result<Vec<GameSummary>> {
+        let order = match sort {
+            "title" => "g.title",
+            "brand" => "b.name",
+            "release_date" => "g.release_date",
+            "created_at" => "g.created_at",
+            "total_playtime" => "total_playtime_seconds",
+            "session_count" => "session_count",
+            _ => "last_played",
+        };
+        let sql = format!(
+            "{} ORDER BY {} {} NULLS LAST,g.title COLLATE NOCASE",
+            GAME_QUERY,
+            order,
+            if descending { "DESC" } else { "ASC" }
+        );
+        let like = format!("%{}%", search);
+        let c = self.0.lock();
+        let mut q = c.prepare(&sql)?;
+        let rows = q.query_map(params![like, brand, brand], game_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+    pub fn list_brands(&self) -> Result<Vec<String>> {
+        let connection = self.0.lock();
+        let mut query =
+            connection.prepare("SELECT name FROM brands ORDER BY name COLLATE NOCASE")?;
+        Ok(query
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+    pub fn get_game(&self, id: i64) -> Result<GameDetail> {
+        let c = self.0.lock();
+        let summary = c
+            .query_row(
+                &format!("{} AND g.id=?", GAME_QUERY),
+                params!["%", Option::<String>::None, Option::<String>::None, id],
+                game_row,
+            )
+            .optional()?
+            .context("ゲームが見つかりません")?;
+        let (eid, url) = c.query_row(
+            "SELECT erogamescape_id,source_url FROM games WHERE id=?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let mut q=c.prepare("SELECT id,game_id,path,file_name,created_at FROM game_executables WHERE game_id=? ORDER BY id")?;
+        let executables = q
+            .query_map([id], |r| {
+                Ok(Executable {
+                    id: r.get(0)?,
+                    game_id: r.get(1)?,
+                    path: r.get(2)?,
+                    file_name: r.get(3)?,
+                    created_at: r.get(4)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(GameDetail {
+            summary,
+            erogamescape_id: eid,
+            source_url: url,
+            executables,
+        })
+    }
+    pub fn list_sessions(&self, game: i64) -> Result<Vec<PlaySession>> {
+        let c = self.0.lock();
+        let mut q=c.prepare("SELECT s.id,s.game_id,s.launched_at,s.exited_at,s.needs_review,COALESCE(SUM(CAST(strftime('%s',COALESCE(f.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',f.started_at) AS INTEGER)),0),CASE WHEN s.exited_at IS NULL THEN NULL ELSE CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER) END FROM play_sessions s LEFT JOIN focus_intervals f ON f.play_session_id=s.id WHERE s.game_id=? GROUP BY s.id ORDER BY s.launched_at DESC")?;
+        Ok(q.query_map([game], |r| {
+            Ok(PlaySession {
+                id: r.get(0)?,
+                game_id: r.get(1)?,
+                launched_at: r.get(2)?,
+                exited_at: r.get(3)?,
+                needs_review: r.get::<_, i64>(4)? != 0,
+                foreground_seconds: r.get(5)?,
+                running_seconds: r.get(6)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?)
+    }
+    pub fn intervals(&self, session: i64) -> Result<Vec<FocusInterval>> {
+        let c = self.0.lock();
+        let mut q=c.prepare("SELECT id,play_session_id,started_at,ended_at FROM focus_intervals WHERE play_session_id=? ORDER BY started_at")?;
+        Ok(q.query_map([session], |r| {
+            Ok(FocusInterval {
+                id: r.get(0)?,
+                play_session_id: r.get(1)?,
+                started_at: r.get(2)?,
+                ended_at: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?)
+    }
+    pub fn start_session(&self, game: i64, at: &str) -> Result<i64> {
+        let n = now();
+        let c = self.0.lock();
+        c.execute(
+            "INSERT INTO play_sessions(game_id,launched_at,created_at,updated_at) VALUES(?,?,?,?)",
+            params![game, at, n, n],
+        )?;
+        Ok(c.last_insert_rowid())
+    }
+    pub fn end_session(&self, id: i64, at: &str) -> Result<()> {
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        tx.execute("UPDATE focus_intervals SET ended_at=?,updated_at=? WHERE play_session_id=? AND ended_at IS NULL",params![at,now(),id])?;
+        tx.execute(
+            "UPDATE play_sessions SET exited_at=?,updated_at=? WHERE id=?",
+            params![at, now(), id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn start_interval(&self, session: i64, at: &str) -> Result<i64> {
+        validate_interval(&self.0.lock(), session, None, at, None)?;
+        let n = now();
+        let c = self.0.lock();
+        c.execute("INSERT INTO focus_intervals(play_session_id,started_at,created_at,updated_at) VALUES(?,?,?,?)",params![session,at,n,n])?;
+        Ok(c.last_insert_rowid())
+    }
+    pub fn end_interval(&self, id: i64, at: &str) -> Result<()> {
+        let c = self.0.lock();
+        let (session, start): (i64, String) = c.query_row(
+            "SELECT play_session_id,started_at FROM focus_intervals WHERE id=?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        validate_interval(&c, session, Some(id), &start, Some(at))?;
+        c.execute(
+            "UPDATE focus_intervals SET ended_at=?,updated_at=? WHERE id=?",
+            params![at, now(), id],
+        )?;
+        Ok(())
+    }
+    pub fn manual_session(&self, game: i64, start: &str, end: &str) -> Result<i64> {
+        parse_range(start, end)?;
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let n = now();
+        tx.execute("INSERT INTO play_sessions(game_id,launched_at,exited_at,created_at,updated_at) VALUES(?,?,?,?,?)",params![game,start,end,n,n])?;
+        let id = tx.last_insert_rowid();
+        tx.execute("INSERT INTO focus_intervals(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)",params![id,start,end,n,n])?;
+        tx.commit()?;
+        Ok(id)
+    }
+    pub fn update_session(&self, id: i64, start: &str, end: Option<&str>) -> Result<()> {
+        if let Some(e) = end {
+            parse_range(start, e)?
+        }
+        let c = self.0.lock();
+        let invalid:i64=c.query_row("SELECT COUNT(*) FROM focus_intervals WHERE play_session_id=? AND (started_at < ? OR (? IS NOT NULL AND (ended_at IS NULL OR ended_at > ?)))",params![id,start,end,end],|r|r.get(0))?;
+        if invalid > 0 {
+            bail!("FocusIntervalがSession範囲外になります")
+        };
+        c.execute("UPDATE play_sessions SET launched_at=?,exited_at=?,needs_review=0,updated_at=? WHERE id=?",params![start,end,now(),id])?;
+        Ok(())
+    }
+    pub fn delete_session(&self, id: i64) -> Result<()> {
+        self.0
+            .lock()
+            .execute("DELETE FROM play_sessions WHERE id=?", [id])?;
+        Ok(())
+    }
+    pub fn delete_game_sessions(&self, game: i64) -> Result<usize> {
+        Ok(self
+            .0
+            .lock()
+            .execute("DELETE FROM play_sessions WHERE game_id=?", [game])?)
+    }
+    pub fn create_interval(&self, session: i64, start: &str, end: &str) -> Result<i64> {
+        parse_range(start, end)?;
+        let c = self.0.lock();
+        validate_interval(&c, session, None, start, Some(end))?;
+        let n = now();
+        c.execute("INSERT INTO focus_intervals(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)",params![session,start,end,n,n])?;
+        Ok(c.last_insert_rowid())
+    }
+    pub fn update_interval(&self, id: i64, start: &str, end: &str) -> Result<()> {
+        parse_range(start, end)?;
+        let c = self.0.lock();
+        let session: i64 = c.query_row(
+            "SELECT play_session_id FROM focus_intervals WHERE id=?",
+            [id],
+            |r| r.get(0),
+        )?;
+        validate_interval(&c, session, Some(id), start, Some(end))?;
+        c.execute(
+            "UPDATE focus_intervals SET started_at=?,ended_at=?,updated_at=? WHERE id=?",
+            params![start, end, now(), id],
+        )?;
+        Ok(())
+    }
+    pub fn delete_interval(&self, id: i64) -> Result<()> {
+        self.0
+            .lock()
+            .execute("DELETE FROM focus_intervals WHERE id=?", [id])?;
+        Ok(())
+    }
+    pub fn recover_orphans(&self, at: &str) -> Result<usize> {
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let n = tx.execute(
+            "UPDATE focus_intervals SET ended_at=?,updated_at=? WHERE ended_at IS NULL",
+            params![at, now()],
+        )?;
+        tx.execute("UPDATE play_sessions SET exited_at=?,needs_review=1,updated_at=? WHERE exited_at IS NULL",params![at,now()])?;
+        tx.commit()?;
+        Ok(n)
+    }
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .0
+            .lock()
+            .query_row("SELECT value FROM settings WHERE key=?", [key], |r| {
+                r.get(0)
+            })
+            .optional()?)
+    }
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.0.lock().execute("INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![key,value,now()])?;
+        Ok(())
+    }
+    pub fn metadata_identity(&self, id: i64) -> Result<(Option<i64>, Option<String>)> {
+        Ok(self.0.lock().query_row(
+            "SELECT erogamescape_id,source_url FROM games WHERE id=?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
+    }
+    pub fn apply_metadata(
+        &self,
+        id: i64,
+        m: &crate::metadata::GameMetadata,
+        thumb: Option<&str>,
+    ) -> Result<()> {
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let brand = brand_id(&tx, m.brand.as_deref())?;
+        tx.execute("UPDATE games SET erogamescape_id=?,title=?,brand_id=?,release_date=?,thumbnail_path=COALESCE(?,thumbnail_path),source_url=?,updated_at=? WHERE id=?",params![m.erogamescape_id,m.title,brand,m.release_date,thumb,m.source_url,now(),id])?;
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
+COALESCE((SELECT SUM(CAST(strftime('%s',COALESCE(f.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',f.started_at) AS INTEGER)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id),0) total_playtime_seconds,
+COALESCE((SELECT SUM(CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER)) FROM play_sessions s WHERE s.game_id=g.id AND s.exited_at IS NOT NULL),0) total_running_seconds,
+(SELECT MAX(COALESCE(f.ended_at,f.started_at)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id) last_played,
+(SELECT COUNT(*) FROM play_sessions s WHERE s.game_id=g.id) session_count
+FROM games g LEFT JOIN brands b ON b.id=g.brand_id WHERE g.title LIKE ? AND (? IS NULL OR b.name=?)";
+fn game_row(r: &rusqlite::Row) -> rusqlite::Result<GameSummary> {
+    Ok(GameSummary {
+        id: r.get(0)?,
+        title: r.get(1)?,
+        brand: r.get(2)?,
+        release_date: r.get(3)?,
+        thumbnail_path: r.get(4)?,
+        created_at: r.get(5)?,
+        total_playtime_seconds: r.get(6)?,
+        total_running_seconds: r.get(7)?,
+        last_played: r.get(8)?,
+        session_count: r.get(9)?,
+    })
+}
+fn now() -> String {
+    Utc::now().to_rfc3339()
+}
+fn parse_range(start: &str, end: &str) -> Result<()> {
+    let s = DateTime::parse_from_rfc3339(start).context("開始日時が不正です")?;
+    let e = DateTime::parse_from_rfc3339(end).context("終了日時が不正です")?;
+    if e < s {
+        bail!("終了日時は開始日時以降にしてください")
+    };
+    Ok(())
+}
+fn brand_id(c: &Connection, name: Option<&str>) -> Result<Option<i64>> {
+    let Some(name) = name.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    c.execute(
+        "INSERT INTO brands(name) VALUES(?) ON CONFLICT(name) DO NOTHING",
+        [name],
+    )?;
+    Ok(Some(c.query_row(
+        "SELECT id FROM brands WHERE name=?",
+        [name],
+        |r| r.get(0),
+    )?))
+}
+fn insert_executable(c: &Connection, game: i64, path: &str) -> Result<()> {
+    let p = normalize_path(path);
+    if p.is_empty() {
+        bail!("実行ファイルパスが空です")
+    };
+    let file = Path::new(&p)
+        .file_name()
+        .and_then(|x| x.to_str())
+        .context("実行ファイル名を取得できません")?;
+    c.execute(
+        "INSERT INTO game_executables(game_id,path,file_name,created_at) VALUES(?,?,?,?)",
+        params![game, p, file, now()],
+    )?;
+    Ok(())
+}
+pub fn normalize_path(path: &str) -> String {
+    let p = path.trim().trim_matches('"').replace('/', "\\");
+    p.strip_prefix("\\\\?\\").unwrap_or(&p).to_lowercase()
+}
+fn validate_interval(
+    c: &Connection,
+    session: i64,
+    exclude: Option<i64>,
+    start: &str,
+    end: Option<&str>,
+) -> Result<()> {
+    DateTime::parse_from_rfc3339(start).context("開始日時が不正です")?;
+    if let Some(e) = end {
+        parse_range(start, e)?
+    }
+    let (ss, se): (String, Option<String>) = c.query_row(
+        "SELECT launched_at,exited_at FROM play_sessions WHERE id=?",
+        [session],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if start < ss.as_str() || se.as_deref().is_some_and(|x| end.is_none_or(|e| e > x)) {
+        bail!("FocusIntervalはSession範囲内にしてください")
+    };
+    let overlap:i64=c.query_row("SELECT COUNT(*) FROM focus_intervals WHERE play_session_id=? AND (? IS NULL OR id<>?) AND COALESCE(ended_at,'9999') > ? AND COALESCE(?, '9999') > started_at",params![session,exclude,exclude,start,end],|r|r.get(0))?;
+    if overlap > 0 {
+        bail!("FocusIntervalが既存の区間と重複しています")
+    };
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn game(db: &Database) -> i64 {
+        db.create_game(
+            &CreateGameInput {
+                title: "A".into(),
+                brand: Some("B".into()),
+                release_date: None,
+                thumbnail_url: None,
+                erogamescape_id: None,
+                source_url: None,
+                executable_paths: vec![r#"C:\G\a.exe"#.into(), r#"C:\G\launcher.exe"#.into()],
+            },
+            None,
+        )
+        .unwrap()
+    }
+    #[test]
+    fn aggregate_and_sort() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        d.manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
+            .unwrap();
+        let x = d.list_games("", None, "total_playtime", true).unwrap();
+        assert_eq!(x[0].total_playtime_seconds, 3600);
+        assert_eq!(x[0].session_count, 1);
+    }
+    #[test]
+    fn rejects_overlap_and_outside() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let s = d
+            .manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
+            .unwrap();
+        assert!(
+            d.create_interval(s, "2026-01-01T00:30:00Z", "2026-01-01T00:40:00Z")
+                .is_err()
+        );
+        assert!(
+            d.update_session(s, "2026-01-01T00:10:00Z", Some("2026-01-01T01:00:00Z"))
+                .is_err()
+        );
+    }
+    #[test]
+    fn multiple_executables_one_game() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        assert_eq!(
+            d.registered_executables()
+                .unwrap()
+                .iter()
+                .filter(|x| x.0 == g)
+                .count(),
+            2
+        );
+    }
+    #[test]
+    fn brand_list_is_independent_from_game_filtering() {
+        let d = Database::memory().unwrap();
+        game(&d);
+        d.create_game(
+            &CreateGameInput {
+                title: "Other".into(),
+                brand: Some("Another Brand".into()),
+                release_date: None,
+                thumbnail_url: None,
+                erogamescape_id: None,
+                source_url: None,
+                executable_paths: vec![],
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(d.list_brands().unwrap(), vec!["Another Brand", "B"]);
+        assert_eq!(
+            d.list_games("", Some("B"), "title", false).unwrap().len(),
+            1
+        );
+        assert_eq!(d.list_brands().unwrap().len(), 2);
+    }
+}

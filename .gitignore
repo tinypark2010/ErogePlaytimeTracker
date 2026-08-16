@@ -1,0 +1,38 @@
+# JavaScript dependencies and frontend build output
+node_modules/
+dist/
+
+# Rust / Tauri build output and generated installers
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Local application data (if copied into the repository)
+*.db
+*.db-shm
+*.db-wal
+thumbnails/
+logs/
+
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# Editor and OS metadata
+.idea/
+.vscode/
+.vs/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test coverage
+coverage/

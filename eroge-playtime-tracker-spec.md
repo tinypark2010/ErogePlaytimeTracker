@@ -1,0 +1,891 @@
+# Eroge Playtime Tracker — Technical Specification
+
+> Working title: `ErogePlaytimeTracker`  
+> Target: Windows 10 / 11 x64  
+> Status: Initial implementation specification  
+> Primary use case: Record play time for visual novels / eroge per title, with ErogameScape metadata.
+
+## 1. Goal
+
+Create a Windows desktop application that:
+
+- Tracks play sessions for registered games.
+- Counts **play time primarily while the game is the foreground window**.
+- Records one logical `PlaySession` per game launch.
+- Preserves the foreground periods inside that launch as `FocusInterval` records.
+- Lets the user review and edit recorded sessions later.
+- Retrieves game metadata such as title, brand, release date, and thumbnail from ErogameScape (批評空間).
+- Lets the user filter games by brand and sort by values such as total play time and last played time.
+- Runs as a normal Windows application and can stay resident in the system tray.
+- Does not require the user to manually install .NET or another application runtime.
+
+This is a **local-first desktop application**. A server/backend service is not required.
+
+---
+
+## 2. Chosen technology stack
+
+### Desktop framework
+
+- **Tauri 2**
+
+### Backend / native logic
+
+- **Rust**
+- Windows API access via the `windows` crate.
+- HTTP client: `reqwest`.
+- HTML parsing: choose a maintained Rust HTML parser such as `scraper`.
+- SQLite access: **`rusqlite`**.
+- Serialization: `serde` / `serde_json`.
+
+### Frontend
+
+- **Svelte**
+- **TypeScript**
+- Vite-based Tauri frontend.
+
+The frontend is responsible for presentation and user interaction only.  
+Tracking, database access, metadata retrieval, and Windows integration belong in Rust.
+
+### Database
+
+- **SQLite**
+- One local database file.
+- Use migrations from the beginning.
+
+---
+
+## 3. High-level architecture
+
+```text
+Svelte / TypeScript UI
+        |
+        | Tauri commands / events
+        v
+Rust application layer
+├── tracking
+│   ├── process detection
+│   ├── foreground-window detection
+│   └── session state machine
+├── database
+│   ├── migrations
+│   └── repositories
+├── metadata
+│   └── ErogameScape provider
+├── thumbnails
+└── settings
+        |
+        v
+SQLite + local thumbnail cache
+```
+
+The tracking code should not depend directly on Svelte or UI state.  
+Keep the core tracking logic independently testable.
+
+Suggested Rust layout:
+
+```text
+src-tauri/src/
+├── main.rs
+├── commands/
+│   ├── games.rs
+│   ├── sessions.rs
+│   └── settings.rs
+├── database/
+│   ├── mod.rs
+│   ├── migrations.rs
+│   ├── game_repository.rs
+│   └── session_repository.rs
+├── metadata/
+│   ├── mod.rs
+│   └── erogamescape.rs
+├── models/
+│   ├── game.rs
+│   ├── brand.rs
+│   ├── executable.rs
+│   ├── play_session.rs
+│   └── focus_interval.rs
+├── tracking/
+│   ├── mod.rs
+│   ├── foreground.rs
+│   ├── process.rs
+│   └── session_tracker.rs
+└── settings/
+    └── mod.rs
+```
+
+Exact module names may change if there is a clear architectural reason.
+
+---
+
+## 4. Core domain model
+
+### 4.1 Game
+
+Represents one visual novel / eroge.
+
+Suggested fields:
+
+```text
+Game
+- id
+- erogamescape_id       nullable
+- title
+- brand_id              nullable
+- release_date          nullable
+- thumbnail_path        nullable
+- source_url            nullable
+- created_at
+- updated_at
+```
+
+### 4.2 Brand
+
+```text
+Brand
+- id
+- erogamescape_id       nullable
+- name
+```
+
+### 4.3 GameExecutable
+
+A game may have multiple executables.
+
+```text
+GameExecutable
+- id
+- game_id
+- path
+- file_name
+- created_at
+```
+
+Important:
+
+- Do **not** assume Game : Executable is 1:1.
+- Launcher / engine / secondary executable configurations must be possible.
+- Executable matching should prefer normalized full paths when available.
+
+Example:
+
+```text
+Game
+└── Executables
+    ├── launcher.exe
+    └── game.exe
+```
+
+### 4.4 PlaySession
+
+One logical record per game launch.
+
+```text
+PlaySession
+- id
+- game_id
+- launched_at
+- exited_at             nullable while running
+- created_at
+- updated_at
+```
+
+`launched_at` and `exited_at` represent how long the game process/session existed.
+
+Do not store total play duration as the source of truth if it can be calculated.
+
+### 4.5 FocusInterval
+
+Represents a period during a `PlaySession` in which the game was considered actively played.
+
+```text
+FocusInterval
+- id
+- play_session_id
+- started_at
+- ended_at              nullable while active
+- created_at
+- updated_at
+```
+
+The **foreground play time** of a session is:
+
+```text
+SUM(FocusInterval.ended_at - FocusInterval.started_at)
+```
+
+The total foreground play time of a game is the sum across all of its sessions.
+
+This model intentionally preserves both:
+
+- total process/session time;
+- actual foreground play time.
+
+Example:
+
+```text
+Game launched:       20:00
+Foreground:          20:00 - 20:30
+Browser foreground:  20:30 - 20:40
+Foreground:          20:40 - 21:20
+Discord foreground:  21:20 - 21:30
+Foreground:          21:30 - 22:00
+Game exited:         22:00
+
+Session duration:    2h 00m
+Foreground playtime: 1h 40m
+```
+
+---
+
+## 5. Tracking behavior
+
+### 5.1 Primary rule
+
+The preferred play-time definition is:
+
+> A game counts as actively played while one of its registered executables owns the current foreground window.
+
+A game can remain running in the background without accumulating foreground play time.
+
+### 5.2 Foreground-window detection
+
+Use Windows APIs through the Rust `windows` crate.
+
+Primary APIs / concepts:
+
+- `SetWinEventHook`
+- `EVENT_SYSTEM_FOREGROUND`
+- `GetForegroundWindow`
+- `GetWindowThreadProcessId`
+
+Expected flow:
+
+```text
+Foreground window changed
+        |
+        v
+Get owning PID
+        |
+        v
+Resolve executable
+        |
+        v
+Match executable against registered GameExecutable rows
+        |
+        +--> registered game -> begin/continue FocusInterval
+        |
+        +--> anything else   -> end current FocusInterval
+```
+
+### 5.3 Event-driven + reconciliation
+
+Use foreground-change events as the normal mechanism.
+
+Also implement a low-frequency reconciliation check using `GetForegroundWindow()` so the tracker can recover if an event is missed.
+
+A reasonable initial reconciliation interval is approximately **2–5 seconds**.  
+Keep the value configurable internally.
+
+Do not use high-frequency polling when it is unnecessary.
+
+### 5.4 Process / launch tracking
+
+The application must know when a registered game starts and exits so that one `PlaySession` corresponds to one launch.
+
+Implementation may use Windows process APIs, event subscriptions, or a conservative polling mechanism, but should satisfy these behaviors:
+
+1. Registered game starts.
+2. Create one `PlaySession` with `launched_at`.
+3. Foreground transitions create/end `FocusInterval` records.
+4. Registered game exits.
+5. End any open `FocusInterval`.
+6. Set `PlaySession.exited_at`.
+
+### 5.5 Multiple executables for one game
+
+Multiple registered executables may map to the same game.
+
+Avoid generating duplicate simultaneous sessions when a launcher starts the actual game executable.
+
+For MVP, define one logical session per game when at least one registered executable belonging to that game is alive.
+
+State should therefore be tracked by **game**, not merely by PID.
+
+Suggested interpretation:
+
+```text
+0 matching processes alive -> game not running
+1+ matching processes alive -> game running
+```
+
+Transition from 0 to 1+ starts the session.  
+Transition from 1+ to 0 ends the session.
+
+### 5.6 Multiple registered games running
+
+The design should tolerate multiple registered games running at the same time.
+
+- Each running game may have its own `PlaySession`.
+- Only the game that owns the foreground window should accumulate a `FocusInterval`.
+- Switching foreground directly from Game A to Game B ends A's interval and starts B's interval.
+
+---
+
+## 6. Editing behavior
+
+The user must be able to inspect and edit recorded data.
+
+### Session list
+
+For a game, show at minimum:
+
+- launch/start datetime;
+- exit/end datetime;
+- foreground play time;
+- process/session duration.
+
+### Session editing
+
+Allow editing:
+
+- `launched_at`;
+- `exited_at`.
+
+### Focus interval editing
+
+Because foreground intervals are the source of truth for active play time, provide a detailed session view that allows:
+
+- adding a focus interval;
+- editing start/end of a focus interval;
+- deleting an incorrect focus interval.
+
+Validation:
+
+- `ended_at >= started_at`;
+- focus intervals should remain inside the parent session's start/end range when the session has both bounds;
+- reject or normalize overlapping focus intervals inside the same session;
+- changing session bounds must not silently produce invalid focus intervals.
+
+### Manual session creation
+
+Allow a user to add a session manually.
+
+For a simple manual entry, it is acceptable to create:
+
+- one `PlaySession`;
+- one `FocusInterval` covering the same range.
+
+---
+
+## 7. ErogameScape / 批評空間 metadata
+
+### Purpose
+
+Retrieve and populate game metadata such as:
+
+- title;
+- brand;
+- release date;
+- thumbnail / package image when available;
+- ErogameScape game ID;
+- source URL.
+
+### Provider abstraction
+
+Do not couple the application directly to one scraper implementation.
+
+Define a provider abstraction conceptually similar to:
+
+```rust
+trait GameMetadataProvider {
+    async fn fetch_game(&self, id: /* ... */) -> Result<GameMetadata, MetadataError>;
+    async fn search(&self, query: &str) -> Result<Vec<GameSearchResult>, MetadataError>;
+}
+```
+
+Exact Rust async-trait mechanics may differ.
+
+Implement:
+
+```text
+ErogameScapeProvider
+```
+
+behind this abstraction.
+
+This is important because the HTML structure may change in the future and other providers could be added later.
+
+### Input methods
+
+MVP should support at least one reliable registration method:
+
+- ErogameScape game URL; or
+- ErogameScape game ID.
+
+Title search can be implemented if reliable enough, but URL/ID registration is sufficient for the first working milestone.
+
+### Scraping behavior
+
+- Use `reqwest`.
+- Parse HTML using a maintained parser.
+- Keep CSS selectors / parsing details isolated inside the ErogameScape provider.
+- Use a sensible User-Agent.
+- Avoid aggressive request rates.
+- Do not repeatedly fetch unchanged metadata on every application launch.
+
+### Thumbnail behavior
+
+Download the thumbnail once and cache it locally.
+
+Suggested data directory:
+
+```text
+%LOCALAPPDATA%\ErogePlaytimeTracker\
+├── app.db
+├── thumbnails\
+└── logs\
+```
+
+Do not depend on ErogameScape being reachable merely to render the existing game library.
+
+---
+
+## 8. UI requirements
+
+The UI does not need elaborate visual effects. Prefer a clean desktop-library layout.
+
+### 8.1 Main game library
+
+Each game entry should show at least:
+
+- thumbnail;
+- title;
+- brand;
+- total foreground play time;
+- last played datetime.
+
+### 8.2 Filter
+
+Support filtering by:
+
+- brand.
+
+Also provide a title/text search if inexpensive to implement.
+
+### 8.3 Sorting
+
+Support at least:
+
+- title;
+- brand;
+- release date;
+- registration date;
+- total foreground play time;
+- last played datetime;
+- play-session count.
+
+Ascending/descending switching should be possible where appropriate.
+
+### 8.4 Game detail
+
+Show:
+
+- thumbnail;
+- title;
+- brand;
+- release date;
+- registered executable paths;
+- total foreground play time;
+- total launched/running time if useful;
+- last played datetime;
+- session history.
+
+Actions:
+
+- add/remove executable;
+- edit metadata where reasonable;
+- refresh ErogameScape metadata;
+- add/edit/delete session records.
+
+### 8.5 Add game
+
+Initial flow:
+
+1. Enter ErogameScape URL or ID.
+2. Fetch metadata.
+3. Show preview.
+4. Register game.
+5. Add one or more executable paths.
+
+Also permit a manually-created game when metadata retrieval fails.
+
+### 8.6 System tray
+
+The app should support resident operation.
+
+Tray behavior:
+
+- opening the main window;
+- showing basic tracking state;
+- exiting the application cleanly.
+
+Closing the main window may minimize/hide to tray rather than terminate the tracker.  
+Make the behavior explicit in settings if needed.
+
+### 8.7 Auto-start
+
+Support optional launch at Windows sign-in using an appropriate Tauri 2 plugin or equivalent native implementation.
+
+Default may be off for the first build.
+
+---
+
+## 9. Tauri command boundary
+
+Do not expose raw SQL or low-level tracking internals to the frontend.
+
+Commands should be task-oriented, for example:
+
+```text
+list_games
+get_game
+create_game
+update_game
+delete_game
+
+add_game_executable
+remove_game_executable
+
+list_sessions
+create_manual_session
+update_session
+delete_session
+
+list_focus_intervals
+create_focus_interval
+update_focus_interval
+delete_focus_interval
+
+fetch_erogamescape_metadata
+refresh_game_metadata
+
+get_settings
+update_settings
+```
+
+Tracking status changes can be pushed to the frontend using Tauri events where appropriate.
+
+---
+
+## 10. Database notes
+
+Use SQLite migrations.
+
+Recommended initial tables:
+
+```text
+brands
+games
+game_executables
+play_sessions
+focus_intervals
+settings
+```
+
+Potential indexes:
+
+```text
+game_executables(path)
+play_sessions(game_id, launched_at)
+focus_intervals(play_session_id, started_at)
+games(brand_id)
+```
+
+Store timestamps consistently.
+
+Recommended choice:
+
+- UTC in the database;
+- convert to local time in the UI.
+
+If another timestamp representation is chosen, keep it consistent throughout the application.
+
+Foreign keys should be enabled.
+
+Deletion behavior should be intentional, e.g. deleting a game may cascade to its executables/sessions after explicit confirmation.
+
+---
+
+## 11. Derived statistics
+
+Do not duplicate statistics in the database unless profiling proves it necessary.
+
+Derive:
+
+### Total foreground play time
+
+```text
+SUM(all FocusInterval durations for game)
+```
+
+### Last played time
+
+Prefer:
+
+```text
+MAX(FocusInterval.ended_at)
+```
+
+with a reasonable fallback for an active session if needed.
+
+### Session count
+
+```text
+COUNT(PlaySession)
+```
+
+### Total running time
+
+```text
+SUM(PlaySession.exited_at - PlaySession.launched_at)
+```
+
+---
+
+## 12. Runtime state
+
+The tracker should maintain an in-memory state representing:
+
+```text
+registered executable paths
+running games
+running process IDs per game
+active foreground game
+open PlaySession IDs
+open FocusInterval ID
+```
+
+Database writes should happen at meaningful state transitions rather than on every polling tick.
+
+Examples of write points:
+
+- game transitions from not-running -> running;
+- foreground switches to registered game;
+- foreground leaves registered game;
+- game transitions from running -> not-running.
+
+---
+
+## 13. Reliability requirements
+
+Tracking correctness is more important than extremely small code size.
+
+Handle gracefully:
+
+- process disappears between enumeration and inspection;
+- executable path cannot be read due to permissions;
+- foreground HWND becomes invalid;
+- game exits while focused;
+- app exits while a session is active;
+- transient database failures;
+- ErogameScape unavailable or HTML parsing fails;
+- thumbnail download failure.
+
+Failures in metadata retrieval must not stop local play-time tracking.
+
+Log useful errors locally without logging unnecessarily sensitive data.
+
+### Crash / unclean-exit recovery
+
+For the first implementation, at minimum detect open sessions / intervals left from a previous unclean app shutdown.
+
+Do not silently count time from the crash until the next app start.
+
+A conservative recovery strategy is acceptable, such as closing orphaned records at a persisted last-seen timestamp or marking them for user review.
+
+---
+
+## 14. Privacy and network behavior
+
+The core tracker is local.
+
+Network access should occur only for metadata/thumbnail retrieval or other explicitly networked features.
+
+Do not upload play history.
+
+Do not require an account.
+
+---
+
+## 15. Distribution
+
+Target:
+
+```text
+Windows 10 / 11 x64
+```
+
+Primary deliverable:
+
+- Windows `.exe` installer generated through Tauri.
+
+The user should not need to manually install .NET, Node.js, Rust, or development tooling.
+
+### WebView2
+
+Tauri uses Microsoft WebView2 on Windows.
+
+Packaging should ensure a normal end user does not have to manually resolve this dependency.
+
+Preferred approach:
+
+- use Tauri's supported Windows installer behavior for WebView2 installation/bootstrap; or
+- bundle a fixed WebView2 runtime if a fully self-contained distribution is explicitly chosen later.
+
+A literal portable one-file executable is **not a hard MVP requirement** if it would make WebView2 distribution unnecessarily complex.  
+A single installer `.exe` with no manual prerequisite installation is acceptable.
+
+---
+
+## 16. Development principles
+
+- Keep native Windows / process / foreground logic in Rust.
+- Keep persistence behind repository/service boundaries.
+- Keep ErogameScape parsing isolated behind a provider abstraction.
+- Keep Svelte focused on UI.
+- Prefer simple, explicit code over framework-heavy architecture.
+- Avoid premature optimization.
+- Write tests for tracking state transitions and time aggregation.
+- Add migrations instead of mutating schema ad hoc.
+- Do not store redundant duration values as authoritative state.
+
+---
+
+## 17. Suggested implementation order
+
+### Phase 1 — project skeleton
+
+- Initialize Tauri 2 + Svelte + TypeScript.
+- Add Rust module layout.
+- Add SQLite database and migration infrastructure.
+- Establish application data directory.
+
+### Phase 2 — local library CRUD
+
+- Game CRUD.
+- Brand CRUD/internal handling.
+- Multiple executable registrations per game.
+- Basic library UI.
+- Game detail UI.
+
+### Phase 3 — tracking MVP
+
+- Detect registered processes.
+- Start/end one `PlaySession` per logical game launch.
+- Detect foreground game.
+- Record `FocusInterval`s.
+- Display live/current tracking state.
+- Aggregate total foreground play time.
+
+### Phase 4 — history
+
+- Session list.
+- Session detail.
+- Manual session creation.
+- Edit/delete session.
+- Edit/add/delete focus intervals.
+- Validation for overlaps/ranges.
+
+### Phase 5 — ErogameScape
+
+- Provider abstraction.
+- URL/ID metadata retrieval.
+- Brand mapping.
+- Thumbnail caching.
+- Metadata refresh.
+- Graceful parsing/network errors.
+
+### Phase 6 — library features
+
+- Brand filter.
+- Sorting.
+- Title search.
+- Last played / total playtime / session count statistics.
+
+### Phase 7 — resident app behavior
+
+- System tray.
+- Hide/show window behavior.
+- Optional auto-start.
+- Clean shutdown of active records.
+- Recovery of orphaned records.
+
+### Phase 8 — packaging and quality
+
+- Windows x64 packaging.
+- WebView2 installer behavior.
+- Tests.
+- Logging.
+- README/build instructions.
+
+---
+
+## 18. MVP acceptance criteria
+
+The first usable release is complete when all of the following work:
+
+1. The application runs on Windows 10/11 x64.
+2. A game can be registered manually.
+3. Multiple executable paths can be attached to one game.
+4. Starting a registered game creates one `PlaySession`.
+5. The game accumulates play time only while one of its registered executables owns the foreground window.
+6. Alt-Tabbing away stops active play-time accumulation.
+7. Returning to the game resumes accumulation inside the same launch session.
+8. Exiting the game closes the session.
+9. Session history can be viewed.
+10. Session and focus-interval data can be edited.
+11. Total foreground play time is derived correctly.
+12. Games can be filtered by brand.
+13. Games can be sorted by total play time and last played time.
+14. Game metadata can be populated from ErogameScape by URL or ID.
+15. Thumbnails are cached locally.
+16. The app can remain resident in the system tray.
+17. Metadata/network failure does not break play-time tracking.
+18. End users do not need to manually install .NET, Rust, Node.js, or development tools.
+
+---
+
+## 19. Explicit non-goals for the initial version
+
+Unless necessary for the architecture, do not prioritize:
+
+- cloud synchronization;
+- user accounts;
+- mobile support;
+- macOS/Linux support;
+- social features;
+- achievements;
+- automatic game discovery across the whole disk;
+- Steam integration;
+- complex analytics dashboards;
+- plugin systems;
+- multiple metadata providers beyond the abstraction needed to support them later.
+
+---
+
+## 20. Important design decisions to preserve
+
+These decisions are intentional and should not be casually changed during implementation:
+
+1. **Rust + Tauri 2 + Svelte + TypeScript** is the selected stack.
+2. **SQLite + rusqlite** is the selected local persistence approach.
+3. Foreground time is the primary play-time metric.
+4. A launch is represented by `PlaySession`.
+5. Foreground periods inside a launch are represented by `FocusInterval`.
+6. A game can have multiple registered executables.
+7. Session state is tracked per game, not per PID.
+8. Durations are derived from timestamps rather than treated as independent authoritative values.
+9. ErogameScape integration is isolated behind a provider abstraction.
+10. Local tracking must continue to work when ErogameScape/network access fails.
+11. A Windows installer `.exe` with automatic dependency handling is acceptable for MVP.
