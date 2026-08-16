@@ -22,7 +22,7 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses sources
-          arguments: --manifest-path src-tauri/Cargo.toml
+          manifest-path: src-tauri/Cargo.toml
 
   release:
     needs: audit
