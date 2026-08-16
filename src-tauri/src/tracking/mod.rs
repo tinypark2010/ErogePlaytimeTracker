@@ -26,7 +26,9 @@ struct Inner {
     state: Mutex<TrackerState>,
     open_interval: Mutex<Option<i64>>,
     observed_foreground: Mutex<Option<(u32, String)>>,
-    known_pid_games: Mutex<HashMap<u32, i64>>,
+    // PID -> (game ID, normalized executable path). Keeping the path prevents
+    // a recycled PID from inheriting a stale game association.
+    known_pid_games: Mutex<HashMap<u32, (i64, String)>>,
     stop: AtomicBool,
     app: AppHandle,
 }
@@ -63,28 +65,44 @@ impl TrackingService {
             .iter()
             .map(|(g, _, p)| (normalize_path(p), *g))
             .collect();
+        let mut game_roots: HashMap<i64, Vec<String>> = HashMap::new();
+        for (game, _, path) in &registered {
+            if let Some(root) = executable_root(path) {
+                game_roots.entry(*game).or_default().push(root);
+            }
+        }
         let processes = platform::processes()?;
         let mut pid_game = self.inner.known_pid_games.lock();
-        pid_game.retain(|pid, _| processes.contains_key(pid));
+        pid_game.retain(|pid, (_, known_path)| {
+            processes
+                .get(pid)
+                .and_then(|process| process.path.as_deref())
+                .is_some_and(|path| normalize_path(path) == *known_path)
+        });
         for (pid, info) in &processes {
             if let Some(g) = info
                 .path
                 .as_deref()
                 .and_then(|path| by_path.get(&normalize_path(path)))
+                && let Some(path) = info.path.as_deref()
             {
-                pid_game.insert(*pid, *g);
+                pid_game.insert(*pid, (*g, normalize_path(path)));
             }
         }
-        // Associate descendants with a registered launcher/game process. Keep
-        // the association by PID so it survives after the launcher exits.
+        // Associate descendants with a registered launcher/game process only
+        // when their executable is inside the registered game's directory.
+        // DRM services and other global helpers can outlive the game and must
+        // not keep its session open.
         let mut changed = true;
         while changed {
             changed = false;
             for (pid, info) in &processes {
                 if !pid_game.contains_key(pid)
-                    && let Some(game) = pid_game.get(&info.parent_pid).copied()
+                    && let Some(game) = pid_game.get(&info.parent_pid).map(|known| known.0)
+                    && let Some(path) = info.path.as_deref()
+                    && is_in_game_root(path, game_roots.get(&game))
                 {
-                    pid_game.insert(*pid, game);
+                    pid_game.insert(*pid, (game, normalize_path(path)));
                     log::info!(
                         "associated child process pid={pid} executable={} game={game}",
                         info.path
@@ -97,7 +115,7 @@ impl TrackingService {
                 }
             }
         }
-        let alive: HashSet<i64> = pid_game.values().copied().collect();
+        let alive: HashSet<i64> = pid_game.values().map(|known| known.0).collect();
         let at = Utc::now().to_rfc3339();
         let mut state = self.inner.state.lock();
         let actions =
@@ -115,7 +133,7 @@ impl TrackingService {
         self.apply(actions, &at)?;
         let foreground = platform::foreground_pid().map(|pid| {
             let path = platform::process_path(pid);
-            let game = pid_game.get(&pid).copied().or_else(|| {
+            let game = pid_game.get(&pid).map(|known| known.0).or_else(|| {
                 path.as_deref()
                     .and_then(|p| by_path.get(&normalize_path(p)).copied())
             });
@@ -230,5 +248,33 @@ impl TrackingService {
         if let Err(e) = self.apply(actions, &at) {
             log::error!("clean shutdown failed: {e:#}")
         }
+    }
+}
+
+fn executable_root(path: &str) -> Option<String> {
+    let path = normalize_path(path);
+    let (root, _) = path.rsplit_once('\\')?;
+    Some(format!("{root}\\"))
+}
+
+fn is_in_game_root(path: &str, roots: Option<&Vec<String>>) -> bool {
+    let path = normalize_path(path);
+    roots.is_some_and(|roots| roots.iter().any(|root| path.starts_with(root)))
+}
+
+#[cfg(test)]
+mod process_association_tests {
+    use super::*;
+
+    #[test]
+    fn descendants_must_stay_in_the_game_directory() {
+        let roots = vec![executable_root(r"D:\vn\game\launcher.exe").unwrap()];
+        assert!(is_in_game_root(r"D:\vn\game\main.bin", Some(&roots)));
+        assert!(is_in_game_root(r"D:\vn\game\engine\game.exe", Some(&roots)));
+        assert!(!is_in_game_root(
+            r"C:\Program Files (x86)\SoftDenchi\SdProxy.exe",
+            Some(&roots)
+        ));
+        assert!(!is_in_game_root(r"D:\vn\game-old\main.exe", Some(&roots)));
     }
 }
