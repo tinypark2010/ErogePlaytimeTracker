@@ -78,7 +78,7 @@ workflowはfrontend/Rustのcheck・test、依存ライセンス監査、第三�
 
 ## License
 
-アプリ本体は [MIT License](LICENSE) で提供します。Rustおよびnpm依存関係にはそれぞれのライセンスが適用され、配布時の一覧は `npm run licenses` で生成します。
+アプリ本体は [MIT License](LICENSE) で提供します。Rustおよびnpm依存関係にはそれぞれのライセンスが適用され、配布時の一覧は `npm run licenses` で重複を除いて生成します。`THIRD_PARTY_LICENSES.txt` は生成物のためGit管理せず、Tauri buildとGitHub Actionsがinstaller作成前に生成します。
 
 ## 既知の制約
 

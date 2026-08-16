@@ -17,17 +17,17 @@ function checkExpression(expression, packageName) {
 
 function licenseText(packageDir) {
   if (!existsSync(packageDir)) return null;
-  const file = readdirSync(packageDir).find(name => /^(licen[cs]e|copying|notice)([-_.].*)?$/i.test(name));
-  return file ? readFileSync(join(packageDir, file), 'utf8').trim() : null;
+  const file = readdirSync(packageDir).sort().find(name => /^(licen[cs]e|copying|notice)([-_.].*)?$/i.test(name));
+  return file ? readFileSync(join(packageDir, file), 'utf8').replace(/\r\n/g, '\n').trim() : null;
 }
 
-const sections = [];
+const dependencies = [];
 const npmLock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
 for (const [path, pkg] of Object.entries(npmLock.packages)) {
   if (!path || pkg.dev || !pkg.name || !pkg.version) continue;
   checkExpression(pkg.license, `${pkg.name}@${pkg.version}`);
   const text = licenseText(path);
-  sections.push(`npm: ${pkg.name}@${pkg.version}\nLicense: ${pkg.license}\n${text ?? 'See the package repository for the complete license text.'}`);
+  dependencies.push({ name: `npm: ${pkg.name}@${pkg.version}`, license: pkg.license, text });
 }
 
 const cargo = JSON.parse(execFileSync('cargo', [
@@ -41,10 +41,25 @@ for (const pkg of cargo.packages) {
   const text = pkg.license_file
     ? readFileSync(join(packageDir, pkg.license_file), 'utf8').trim()
     : licenseText(packageDir);
-  sections.push(`Rust crate: ${pkg.name}@${pkg.version}\nLicense: ${pkg.license}\n${text ?? 'See the crate repository for the complete license text.'}`);
+  dependencies.push({ name: `Rust crate: ${pkg.name}@${pkg.version}`, license: pkg.license, text });
 }
 
-sections.sort((a, b) => a.localeCompare(b));
-const header = `Eroge Playtime Tracker - Third-Party Licenses\n\nGenerated from package-lock.json and Cargo.lock for the Windows x64 distribution.\nThe project itself is licensed separately under the MIT License in LICENSE.\n\n`;
-writeFileSync('THIRD_PARTY_LICENSES.txt', header + sections.join('\n\n' + '='.repeat(78) + '\n\n') + '\n');
-console.log(`Generated THIRD_PARTY_LICENSES.txt with ${sections.length} dependency entries.`);
+dependencies.sort((a, b) => a.name.localeCompare(b.name));
+const groups = new Map();
+for (const dependency of dependencies) {
+  const key = dependency.text ?? `MISSING:${dependency.license}`;
+  const group = groups.get(key) ?? { text: dependency.text, usedBy: [] };
+  group.usedBy.push(`${dependency.name} — ${dependency.license}`);
+  groups.set(key, group);
+}
+
+const inventory = dependencies.map(item => `- ${item.name} — ${item.license}`).join('\n');
+const licenseSections = [...groups.values()].map((group, index) => {
+  const usedBy = group.usedBy.map(item => `- ${item}`).join('\n');
+  const text = group.text ?? 'The package did not include a standalone license file. Its declared SPDX license expression is listed above; consult the package repository for the complete terms.';
+  return `License text ${index + 1}\n\nUsed by:\n${usedBy}\n\n${text}`;
+});
+const divider = '\n\n' + '='.repeat(78) + '\n\n';
+const header = `Eroge Playtime Tracker - Third-Party Licenses\n\nGenerated from package-lock.json and Cargo.lock for the Windows x64 distribution.\nThe project itself is licensed separately under the MIT License in LICENSE.\nIdentical license texts are included once and shared by every package listed under "Used by".\n\nDEPENDENCY INVENTORY\n\n`;
+writeFileSync('THIRD_PARTY_LICENSES.txt', header + inventory + divider + 'LICENSE TEXTS' + divider + licenseSections.join(divider) + '\n');
+console.log(`Generated THIRD_PARTY_LICENSES.txt with ${dependencies.length} dependencies and ${groups.size} unique license texts.`);

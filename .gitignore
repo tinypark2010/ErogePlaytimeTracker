@@ -36,3 +36,6 @@ Desktop.ini
 
 # Test coverage
 coverage/
+
+# Generated before packaging; bundled into the installer but not versioned
+THIRD_PARTY_LICENSES.txt
