@@ -15,6 +15,7 @@
     error = '',
     viewMode: ViewMode = 'grid';
   let loadedKey = '';
+  $: totalPlaytimeSeconds = games.reduce((total, game) => total + game.total_playtime_seconds, 0);
   async function load() {
     try {
       games = await api.listGames(search, brand, playStatus, sort, descending);
@@ -96,6 +97,10 @@
       >
     </div>
   </div>
+</section>
+<section class="library-summary" aria-live="polite">
+  <span>表示中 <strong>{games.length}</strong> 本</span>
+  <span>合計プレイ時間 <strong>{duration(totalPlaytimeSeconds)}</strong></span>
 </section>
 {#if error}<p class="error">{error}</p>{/if}{#if !games.length}<div class="empty">
     ゲームがありません。「ゲーム追加」から登録してください。

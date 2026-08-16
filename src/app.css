@@ -74,7 +74,45 @@ main {
   align-items: center;
 }
 .toolbar {
+  margin-bottom: 0.75rem;
+}
+.library-summary {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 1.25rem;
   margin-bottom: 1.5rem;
+  color: #aaa3b4;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.library-summary > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+.library-summary strong {
+  color: #f5f2fa;
+  font-size: 1rem;
+  line-height: inherit;
+}
+:root[data-theme='light'] .library-summary {
+  color: #615b68;
+}
+:root[data-theme='light'] .library-summary strong {
+  color: #292633;
+}
+:root[data-theme='pink'] .library-summary {
+  color: #805368;
+}
+:root[data-theme='pink'] .library-summary strong {
+  color: #482838;
+}
+:root[data-theme='blue'] .library-summary {
+  color: #526c85;
+}
+:root[data-theme='blue'] .library-summary strong {
+  color: #20364d;
 }
 .toolbar input {
   flex: 1;
