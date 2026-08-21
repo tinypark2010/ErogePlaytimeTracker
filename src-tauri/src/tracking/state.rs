@@ -1,72 +1,120 @@
 use std::collections::{HashMap, HashSet};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     SessionStarted { game_id: i64 },
     SessionEnded { game_id: i64, session_id: i64 },
     FocusStarted { game_id: i64, session_id: i64 },
     FocusEnded { game_id: i64, session_id: i64 },
+    BackgroundStarted { game_id: i64, session_id: i64 },
+    BackgroundEnded { game_id: i64, session_id: i64 },
 }
+
 #[derive(Default)]
 pub struct TrackerState {
     running: HashMap<i64, i64>,
     focused: Option<i64>,
+    background: HashSet<i64>,
 }
+
 impl TrackerState {
     pub fn reconcile_running<F>(&mut self, alive: &HashSet<i64>, mut create: F) -> Vec<Action>
     where
         F: FnMut(i64) -> i64,
     {
-        let mut a = vec![];
+        let mut actions = vec![];
         let ended: Vec<_> = self
             .running
             .keys()
-            .filter(|g| !alive.contains(g))
+            .filter(|game| !alive.contains(game))
             .copied()
             .collect();
-        for g in ended {
-            if self.focused == Some(g) {
+        for game in ended {
+            let session = self.running[&game];
+            if self.focused == Some(game) {
                 self.focused = None;
-                a.push(Action::FocusEnded {
-                    game_id: g,
-                    session_id: self.running[&g],
-                })
+                actions.push(Action::FocusEnded {
+                    game_id: game,
+                    session_id: session,
+                });
             }
-            let s = self.running.remove(&g).unwrap();
-            a.push(Action::SessionEnded {
-                game_id: g,
-                session_id: s,
-            })
+            if self.background.remove(&game) {
+                actions.push(Action::BackgroundEnded {
+                    game_id: game,
+                    session_id: session,
+                });
+            }
+            self.running.remove(&game);
+            actions.push(Action::SessionEnded {
+                game_id: game,
+                session_id: session,
+            });
         }
-        for &g in alive {
-            if let std::collections::hash_map::Entry::Vacant(entry) = self.running.entry(g) {
-                let s = create(g);
-                entry.insert(s);
-                a.push(Action::SessionStarted { game_id: g })
+        for &game in alive {
+            if let std::collections::hash_map::Entry::Vacant(entry) = self.running.entry(game) {
+                entry.insert(create(game));
+                actions.push(Action::SessionStarted { game_id: game });
             }
         }
-        a
+        actions
     }
-    pub fn foreground(&mut self, game: Option<i64>) -> Vec<Action> {
-        let game = game.filter(|g| self.running.contains_key(g));
-        if game == self.focused {
-            return vec![];
+
+    pub fn observe_windows(
+        &mut self,
+        foreground: Option<i64>,
+        windowed: &HashSet<i64>,
+    ) -> Vec<Action> {
+        let foreground =
+            foreground.filter(|game| self.running.contains_key(game) && windowed.contains(game));
+        let mut actions = vec![];
+        if foreground != self.focused {
+            if let Some(game) = self.focused.take() {
+                actions.push(Action::FocusEnded {
+                    game_id: game,
+                    session_id: self.running[&game],
+                });
+            }
+            if let Some(game) = foreground {
+                self.focused = Some(game);
+                actions.push(Action::FocusStarted {
+                    game_id: game,
+                    session_id: self.running[&game],
+                });
+            }
         }
-        let mut a = vec![];
-        if let Some(g) = self.focused.take() {
-            a.push(Action::FocusEnded {
-                game_id: g,
-                session_id: self.running[&g],
-            })
+
+        let desired_background: HashSet<_> = self
+            .running
+            .keys()
+            .filter(|game| windowed.contains(game) && foreground != Some(**game))
+            .copied()
+            .collect();
+        let ended: Vec<_> = self
+            .background
+            .difference(&desired_background)
+            .copied()
+            .collect();
+        for game in ended {
+            self.background.remove(&game);
+            actions.push(Action::BackgroundEnded {
+                game_id: game,
+                session_id: self.running[&game],
+            });
         }
-        if let Some(g) = game {
-            self.focused = Some(g);
-            a.push(Action::FocusStarted {
-                game_id: g,
-                session_id: self.running[&g],
-            })
+        let started: Vec<_> = desired_background
+            .difference(&self.background)
+            .copied()
+            .collect();
+        for game in started {
+            self.background.insert(game);
+            actions.push(Action::BackgroundStarted {
+                game_id: game,
+                session_id: self.running[&game],
+            });
         }
-        a
+        actions
     }
+
     pub fn running(&self) -> &HashMap<i64, i64> {
         &self.running
     }
@@ -74,51 +122,74 @@ impl TrackerState {
         self.focused
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn set(xs: &[i64]) -> HashSet<i64> {
-        xs.iter().copied().collect()
+    fn set(values: &[i64]) -> HashSet<i64> {
+        values.iter().copied().collect()
     }
+
     #[test]
-    fn normal_flow() {
-        let mut s = TrackerState::default();
-        assert_eq!(
-            s.reconcile_running(&set(&[1]), |_| 10),
-            vec![Action::SessionStarted { game_id: 1 }]
-        );
+    fn startup_without_a_window_is_not_background() {
+        let mut state = TrackerState::default();
+        state.reconcile_running(&set(&[1]), |_| 10);
+        assert!(state.observe_windows(None, &set(&[])).is_empty());
         assert!(matches!(
-            s.foreground(Some(1))[0],
+            state.observe_windows(Some(1), &set(&[1]))[0],
             Action::FocusStarted { .. }
         ));
-        assert!(matches!(s.foreground(None)[0], Action::FocusEnded { .. }));
+    }
+
+    #[test]
+    fn visible_non_foreground_window_is_background() {
+        let mut state = TrackerState::default();
+        state.reconcile_running(&set(&[1]), |_| 10);
         assert!(matches!(
-            s.foreground(Some(1))[0],
-            Action::FocusStarted { .. }
+            state.observe_windows(None, &set(&[1]))[0],
+            Action::BackgroundStarted { .. }
         ));
-        let a = s.reconcile_running(&set(&[]), |_| 0);
+        assert_eq!(state.observe_windows(Some(1), &set(&[1])).len(), 2);
+    }
+
+    #[test]
+    fn destroyed_window_does_not_start_background() {
+        let mut state = TrackerState::default();
+        state.reconcile_running(&set(&[1]), |_| 10);
+        state.observe_windows(Some(1), &set(&[1]));
+        let actions = state.observe_windows(None, &set(&[]));
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], Action::FocusEnded { .. }));
+    }
+
+    #[test]
+    fn launcher_does_not_duplicate_session() {
+        let mut state = TrackerState::default();
+        state.reconcile_running(&set(&[1]), |_| 10);
+        assert!(state.reconcile_running(&set(&[1]), |_| 11).is_empty());
+        assert_eq!(state.running()[&1], 10);
+    }
+
+    #[test]
+    fn multiple_games_track_background_independently() {
+        let mut state = TrackerState::default();
+        state.reconcile_running(&set(&[1, 2]), |game| game + 10);
+        let actions = state.observe_windows(Some(1), &set(&[1, 2]));
         assert!(
-            a.iter()
-                .any(|x| matches!(x, Action::SessionEnded { session_id: 10, .. }))
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::BackgroundStarted { game_id: 2, .. }))
         );
-    }
-    #[test]
-    fn launcher_does_not_duplicate() {
-        let mut s = TrackerState::default();
-        s.reconcile_running(&set(&[1]), |_| 10);
-        assert!(s.reconcile_running(&set(&[1]), |_| 11).is_empty());
-        assert_eq!(s.running()[&1], 10);
-    }
-    #[test]
-    fn multiple_games_focus() {
-        let mut s = TrackerState::default();
-        s.reconcile_running(&set(&[1, 2]), |g| g + 10);
-        assert_eq!(s.foreground(Some(1)).len(), 1);
-        let x = s.foreground(Some(2));
-        assert_eq!(x.len(), 2);
-        assert!(matches!(x[0], Action::FocusEnded { game_id: 1, .. }));
-        assert!(matches!(x[1], Action::FocusStarted { game_id: 2, .. }));
-        assert_eq!(s.foreground(None).len(), 1);
-        assert_eq!(s.foreground(Some(1)).len(), 1);
+        let actions = state.observe_windows(Some(2), &set(&[1, 2]));
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::BackgroundStarted { game_id: 1, .. }))
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::BackgroundEnded { game_id: 2, .. }))
+        );
     }
 }

@@ -30,6 +30,9 @@ struct Inner {
     // PID -> (game ID, normalized executable path). Keeping the path prevents
     // a recycled PID from inheriting a stale game association.
     known_pid_games: Mutex<HashMap<u32, (i64, String)>>,
+    watched_pids: Mutex<HashSet<u32>>,
+    games_that_had_windows: Mutex<HashSet<i64>>,
+    windowless_since: Mutex<HashMap<i64, String>>,
     stop: AtomicBool,
     app: AppHandle,
 }
@@ -43,23 +46,37 @@ impl TrackingService {
                 open_background_intervals: Mutex::new(HashMap::new()),
                 observed_foreground: Mutex::new(None),
                 known_pid_games: Mutex::new(HashMap::new()),
+                watched_pids: Mutex::new(HashSet::new()),
+                games_that_had_windows: Mutex::new(HashSet::new()),
+                windowless_since: Mutex::new(HashMap::new()),
                 stop: AtomicBool::new(false),
                 app,
             }),
         };
         let worker = this.clone();
-        let events = platform::foreground_events();
+        let events = platform::tracking_events();
         thread::spawn(move || {
-            log::info!("tracker started with EVENT_SYSTEM_FOREGROUND hook");
+            log::info!("tracker started with foreground and process-exit notifications");
             while !worker.inner.stop.load(Ordering::Relaxed) {
                 if let Err(e) = worker.tick() {
                     log::error!("tracking reconciliation failed: {e:#}")
                 }
-                let _ = events.recv_timeout(Duration::from_secs(seconds.clamp(2, 30)));
+                if let Ok(event) = events.recv_timeout(Duration::from_secs(seconds.clamp(2, 30))) {
+                    worker.handle_event(event);
+                    while let Ok(event) = events.recv_timeout(Duration::from_millis(20)) {
+                        worker.handle_event(event);
+                    }
+                }
             }
             log::info!("tracker stopped")
         });
         this
+    }
+    fn handle_event(&self, event: platform::TrackingEvent) {
+        if let platform::TrackingEvent::ProcessExited(pid) = event {
+            self.inner.watched_pids.lock().remove(&pid);
+            log::info!("tracked process exited pid={pid}; reconciling immediately");
+        }
     }
     fn tick(&self) -> anyhow::Result<()> {
         let registered = self.inner.db.registered_executables()?;
@@ -117,8 +134,41 @@ impl TrackingService {
                 }
             }
         }
+        {
+            let mut watched = self.inner.watched_pids.lock();
+            watched.retain(|pid| pid_game.contains_key(pid));
+            for &pid in pid_game.keys() {
+                if !watched.contains(&pid) && platform::watch_process_exit(pid) {
+                    watched.insert(pid);
+                    log::debug!("watching process exit pid={pid}");
+                }
+            }
+        }
         let alive: HashSet<i64> = pid_game.values().map(|known| known.0).collect();
+        let visible_window_pids = platform::visible_window_pids()?;
+        let windowed: HashSet<i64> = visible_window_pids
+            .iter()
+            .filter_map(|pid| pid_game.get(pid).map(|known| known.0))
+            .collect();
         let at = Utc::now().to_rfc3339();
+        let running_before: HashSet<i64> =
+            self.inner.state.lock().running().keys().copied().collect();
+        let mut had_windows = self.inner.games_that_had_windows.lock();
+        let mut windowless_since = self.inner.windowless_since.lock();
+        for &game in &alive {
+            if windowed.contains(&game) {
+                had_windows.insert(game);
+                windowless_since.remove(&game);
+            } else if had_windows.contains(&game) {
+                windowless_since.entry(game).or_insert_with(|| at.clone());
+            }
+        }
+        let end_overrides: HashMap<i64, String> = running_before
+            .difference(&alive)
+            .filter_map(|game| windowless_since.get(game).map(|at| (*game, at.clone())))
+            .collect();
+        drop(windowless_since);
+        drop(had_windows);
         let mut state = self.inner.state.lock();
         let actions =
             state.reconcile_running(&alive, |g| match self.inner.db.start_session(g, &at) {
@@ -132,7 +182,7 @@ impl TrackingService {
                 }
             });
         drop(state);
-        self.apply(actions, &at)?;
+        self.apply(actions, &at, &end_overrides)?;
         let foreground = platform::foreground_pid().map(|pid| {
             let path = platform::process_path(pid);
             let game = pid_game.get(&pid).map(|known| known.0).or_else(|| {
@@ -162,25 +212,29 @@ impl TrackingService {
         }
         let fg = foreground.and_then(|(_, _, game)| game);
         drop(pid_game);
-        let actions = self.inner.state.lock().foreground(fg);
-        self.apply(actions, &at)?;
+        let actions = self.inner.state.lock().observe_windows(fg, &windowed);
+        self.apply(actions, &at, &HashMap::new())?;
+        self.inner
+            .games_that_had_windows
+            .lock()
+            .retain(|game| alive.contains(game));
+        self.inner
+            .windowless_since
+            .lock()
+            .retain(|game, _| alive.contains(game));
         self.inner.db.set_setting("last_seen", &at)?;
         self.emit();
         Ok(())
     }
-    fn apply(&self, actions: Vec<Action>, at: &str) -> anyhow::Result<()> {
+    fn apply(
+        &self,
+        actions: Vec<Action>,
+        at: &str,
+        end_overrides: &HashMap<i64, String>,
+    ) -> anyhow::Result<()> {
         for a in actions {
             match a {
                 Action::SessionStarted { game_id } => {
-                    if let Some(&session_id) = self.inner.state.lock().running().get(&game_id)
-                        && session_id >= 0
-                    {
-                        let interval = self.inner.db.start_interval(session_id, at)?;
-                        self.inner
-                            .open_background_intervals
-                            .lock()
-                            .insert(session_id, interval);
-                    }
                     log::info!("registered process detected game={game_id}")
                 }
                 Action::SessionEnded {
@@ -188,7 +242,13 @@ impl TrackingService {
                     session_id,
                 } => {
                     if session_id >= 0 {
-                        self.inner.db.end_session(session_id, at)?
+                        self.inner.db.end_session(
+                            session_id,
+                            end_overrides
+                                .get(&game_id)
+                                .map(String::as_str)
+                                .unwrap_or(at),
+                        )?
                     }
                     self.inner
                         .open_background_intervals
@@ -201,14 +261,6 @@ impl TrackingService {
                     session_id,
                 } => {
                     if session_id >= 0 {
-                        if let Some(id) = self
-                            .inner
-                            .open_background_intervals
-                            .lock()
-                            .remove(&session_id)
-                        {
-                            self.inner.db.end_interval(id, at)?;
-                        }
                         *self.inner.open_focus_interval.lock() =
                             Some(self.inner.db.start_legacy_focus_interval(session_id, at)?)
                     }
@@ -216,11 +268,17 @@ impl TrackingService {
                 }
                 Action::FocusEnded {
                     game_id,
-                    session_id,
+                    session_id: _,
                 } => {
                     if let Some(id) = self.inner.open_focus_interval.lock().take() {
                         self.inner.db.end_legacy_focus_interval(id, at)?
                     }
+                    log::info!("foreground left game={game_id}")
+                }
+                Action::BackgroundStarted {
+                    game_id,
+                    session_id,
+                } => {
                     if session_id >= 0 {
                         let id = self.inner.db.start_interval(session_id, at)?;
                         self.inner
@@ -228,7 +286,21 @@ impl TrackingService {
                             .lock()
                             .insert(session_id, id);
                     }
-                    log::info!("foreground left game={game_id}")
+                    log::info!("background entered game={game_id}")
+                }
+                Action::BackgroundEnded {
+                    game_id,
+                    session_id,
+                } => {
+                    if let Some(id) = self
+                        .inner
+                        .open_background_intervals
+                        .lock()
+                        .remove(&session_id)
+                    {
+                        self.inner.db.end_interval(id, at)?;
+                    }
+                    log::info!("background left game={game_id}")
                 }
             }
         }
@@ -278,7 +350,7 @@ impl TrackingService {
         let mut s = self.inner.state.lock();
         let actions = s.reconcile_running(&HashSet::new(), |_| -1);
         drop(s);
-        if let Err(e) = self.apply(actions, &at) {
+        if let Err(e) = self.apply(actions, &at, &HashMap::new()) {
             log::error!("clean shutdown failed: {e:#}")
         }
     }

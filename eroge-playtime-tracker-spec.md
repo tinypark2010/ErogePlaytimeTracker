@@ -305,6 +305,10 @@ Implementation may use Windows process APIs, event subscriptions, or a conservat
 5. End any open `BackgroundInterval`.
 6. Set `PlaySession.exited_at`.
 
+Monitor associated process handles for exit and trigger reconciliation immediately when a PID exits. The periodic reconciliation remains as a fallback. When a game owns multiple associated processes, an individual PID exit must not end the session while another associated process remains alive.
+
+Derive tracking state from process existence, visible top-level windows owned by associated PIDs, and foreground ownership. A process with no visible game window is Starting (before the first window) or WindowTransition/ShuttingDown (after a window existed), not Background. Record Background only while a visible game window exists and none of the game's windows owns the foreground. Close a session at the last window-loss time after process exit confirms shutdown.
+
 ### 5.5 Multiple executables for one game
 
 Multiple registered executables may map to the same game.

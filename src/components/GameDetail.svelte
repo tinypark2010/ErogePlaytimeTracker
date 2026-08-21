@@ -41,7 +41,10 @@
     editingGame = false,
     editTitle = '',
     editBrand = '',
-    editSourceUrl = '';
+    editSourceUrl = '',
+    sessionStart = '',
+    sessionEnd = '',
+    sessionFormDirty = false;
   let confirmAction: ConfirmAction | null = null;
   const confirmTitle = () =>
     confirmAction === 'session'
@@ -57,11 +60,21 @@
         : 'ゲームとすべての履歴を削除します。元に戻せません。';
   async function load() {
     try {
-      [game, sessions, timestamps] = await Promise.all([
+      const [nextGame, nextSessions, nextTimestamps] = await Promise.all([
         api.getGame(gameId),
         api.sessions(gameId),
         api.timestamps(gameId),
       ]);
+      game = nextGame;
+      sessions = nextSessions;
+      timestamps = nextTimestamps;
+      if (selected) {
+        selected = nextSessions.find((session) => session.id === selected?.id) ?? null;
+        if (selected && !sessionFormDirty) {
+          sessionStart = inputTime(selected.launched_at);
+          sessionEnd = inputTime(selected.exited_at);
+        }
+      }
     } catch (e) {
       error = String(e);
     }
@@ -86,6 +99,9 @@
   });
   async function select(s: Session) {
     selected = s;
+    sessionStart = inputTime(s.launched_at);
+    sessionEnd = inputTime(s.exited_at);
+    sessionFormDirty = false;
     intervals = await api.intervals(s.id);
   }
   async function addExe() {
@@ -123,11 +139,8 @@
   async function saveSession() {
     if (!selected) return;
     try {
-      await api.updateSession(
-        selected.id,
-        utc(selected.launched_at),
-        selected.exited_at ? utc(selected.exited_at) : null,
-      );
+      await api.updateSession(selected.id, utc(sessionStart), sessionEnd ? utc(sessionEnd) : null);
+      sessionFormDirty = false;
       await load();
     } catch (e) {
       error = String(e);
@@ -469,15 +482,15 @@
         >開始<input
           type="datetime-local"
           step="1"
-          value={inputTime(selected.launched_at)}
-          onchange={(e) => (selected!.launched_at = (e.currentTarget as HTMLInputElement).value)}
+          bind:value={sessionStart}
+          oninput={() => (sessionFormDirty = true)}
         /></label
       ><label
         >終了<input
           type="datetime-local"
           step="1"
-          value={inputTime(selected.exited_at)}
-          onchange={(e) => (selected!.exited_at = (e.currentTarget as HTMLInputElement).value)}
+          bind:value={sessionEnd}
+          oninput={() => (sessionFormDirty = true)}
         /></label
       >
       <div class="actions">

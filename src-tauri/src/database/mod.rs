@@ -311,6 +311,7 @@ impl Database {
             "UPDATE play_sessions SET exited_at=?,updated_at=? WHERE id=?",
             params![at, now(), id],
         )?;
+        rebuild_focus_mirror(&tx, id)?;
         tx.commit()?;
         Ok(())
     }
