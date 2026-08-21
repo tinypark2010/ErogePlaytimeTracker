@@ -32,6 +32,20 @@ ALTER TABLE games ADD COLUMN play_status TEXT NOT NULL DEFAULT 'unplayed'
     CHECK(play_status IN ('unplayed','playing','completed','retired'));
 CREATE INDEX idx_games_play_status ON games(play_status);
 "#;
+const MIGRATION_4: &str = r#"
+CREATE TABLE background_intervals(
+    id INTEGER PRIMARY KEY,
+    play_session_id INTEGER NOT NULL REFERENCES play_sessions(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK(ended_at IS NULL OR ended_at >= started_at)
+);
+CREATE INDEX idx_background_interval_session_time
+    ON background_intervals(play_session_id,started_at);
+ALTER TABLE play_sessions ADD COLUMN background_migrated INTEGER NOT NULL DEFAULT 0;
+"#;
 
 impl Database {
     pub fn open(path: &Path) -> Result<Self> {
@@ -81,6 +95,15 @@ impl Database {
         if !done {
             tx.execute_batch(MIGRATION_3)?;
             tx.execute("INSERT INTO schema_migrations VALUES(3,?)", [now()])?;
+        }
+        let done: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4)",
+            [],
+            |r| r.get(0),
+        )?;
+        if !done {
+            tx.execute_batch(MIGRATION_4)?;
+            tx.execute("INSERT INTO schema_migrations VALUES(4,?)", [now()])?;
         }
         tx.commit()?;
         Ok(())
@@ -242,7 +265,7 @@ impl Database {
     }
     pub fn list_sessions(&self, game: i64) -> Result<Vec<PlaySession>> {
         let c = self.0.lock();
-        let mut q=c.prepare("SELECT s.id,s.game_id,s.launched_at,s.exited_at,s.needs_review,COALESCE(SUM(CAST(strftime('%s',COALESCE(f.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',f.started_at) AS INTEGER)),0),CASE WHEN s.exited_at IS NULL THEN NULL ELSE CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER) END FROM play_sessions s LEFT JOIN focus_intervals f ON f.play_session_id=s.id WHERE s.game_id=? GROUP BY s.id ORDER BY s.launched_at DESC")?;
+        let mut q=c.prepare("SELECT s.id,s.game_id,s.launched_at,s.exited_at,s.needs_review,MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER)-COALESCE(SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))),0)),COALESCE(SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))),0),CASE WHEN s.exited_at IS NULL THEN NULL ELSE CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER) END FROM play_sessions s LEFT JOIN background_intervals b ON b.play_session_id=s.id WHERE s.game_id=? GROUP BY s.id ORDER BY s.launched_at DESC")?;
         Ok(q.query_map([game], |r| {
             Ok(PlaySession {
                 id: r.get(0)?,
@@ -250,17 +273,18 @@ impl Database {
                 launched_at: r.get(2)?,
                 exited_at: r.get(3)?,
                 needs_review: r.get::<_, i64>(4)? != 0,
-                foreground_seconds: r.get(5)?,
-                running_seconds: r.get(6)?,
+                playtime_seconds: r.get(5)?,
+                background_seconds: r.get(6)?,
+                running_seconds: r.get(7)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?)
     }
-    pub fn intervals(&self, session: i64) -> Result<Vec<FocusInterval>> {
+    pub fn intervals(&self, session: i64) -> Result<Vec<BackgroundInterval>> {
         let c = self.0.lock();
-        let mut q=c.prepare("SELECT id,play_session_id,started_at,ended_at FROM focus_intervals WHERE play_session_id=? ORDER BY started_at")?;
+        let mut q=c.prepare("SELECT id,play_session_id,started_at,ended_at FROM background_intervals WHERE play_session_id=? ORDER BY started_at")?;
         Ok(q.query_map([session], |r| {
-            Ok(FocusInterval {
+            Ok(BackgroundInterval {
                 id: r.get(0)?,
                 play_session_id: r.get(1)?,
                 started_at: r.get(2)?,
@@ -273,7 +297,7 @@ impl Database {
         let n = now();
         let c = self.0.lock();
         c.execute(
-            "INSERT INTO play_sessions(game_id,launched_at,created_at,updated_at) VALUES(?,?,?,?)",
+            "INSERT INTO play_sessions(game_id,launched_at,created_at,updated_at,background_migrated) VALUES(?,?,?,?,1)",
             params![game, at, n, n],
         )?;
         Ok(c.last_insert_rowid())
@@ -282,6 +306,7 @@ impl Database {
         let mut c = self.0.lock();
         let tx = c.transaction()?;
         tx.execute("UPDATE focus_intervals SET ended_at=?,updated_at=? WHERE play_session_id=? AND ended_at IS NULL",params![at,now(),id])?;
+        tx.execute("UPDATE background_intervals SET ended_at=?,updated_at=? WHERE play_session_id=? AND ended_at IS NULL",params![at,now(),id])?;
         tx.execute(
             "UPDATE play_sessions SET exited_at=?,updated_at=? WHERE id=?",
             params![at, now(), id],
@@ -290,24 +315,67 @@ impl Database {
         Ok(())
     }
     pub fn start_interval(&self, session: i64, at: &str) -> Result<i64> {
-        validate_interval(&self.0.lock(), session, None, at, None)?;
+        validate_interval(
+            &self.0.lock(),
+            "background_intervals",
+            session,
+            None,
+            at,
+            None,
+        )?;
+        let n = now();
+        let c = self.0.lock();
+        c.execute("INSERT INTO background_intervals(play_session_id,started_at,created_at,updated_at) VALUES(?,?,?,?)",params![session,at,n,n])?;
+        Ok(c.last_insert_rowid())
+    }
+    pub fn end_interval(&self, id: i64, at: &str) -> Result<()> {
+        let c = self.0.lock();
+        let (session, start): (i64, String) = c.query_row(
+            "SELECT play_session_id,started_at FROM background_intervals WHERE id=?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        validate_interval(
+            &c,
+            "background_intervals",
+            session,
+            Some(id),
+            &start,
+            Some(at),
+        )?;
+        if start == at {
+            c.execute("DELETE FROM background_intervals WHERE id=?", [id])?;
+        } else {
+            c.execute(
+                "UPDATE background_intervals SET ended_at=?,updated_at=? WHERE id=?",
+                params![at, now(), id],
+            )?;
+        }
+        Ok(())
+    }
+    pub fn start_legacy_focus_interval(&self, session: i64, at: &str) -> Result<i64> {
+        validate_interval(&self.0.lock(), "focus_intervals", session, None, at, None)?;
         let n = now();
         let c = self.0.lock();
         c.execute("INSERT INTO focus_intervals(play_session_id,started_at,created_at,updated_at) VALUES(?,?,?,?)",params![session,at,n,n])?;
         Ok(c.last_insert_rowid())
     }
-    pub fn end_interval(&self, id: i64, at: &str) -> Result<()> {
+    pub fn end_legacy_focus_interval(&self, id: i64, at: &str) -> Result<()> {
         let c = self.0.lock();
         let (session, start): (i64, String) = c.query_row(
             "SELECT play_session_id,started_at FROM focus_intervals WHERE id=?",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        validate_interval(&c, session, Some(id), &start, Some(at))?;
-        c.execute(
-            "UPDATE focus_intervals SET ended_at=?,updated_at=? WHERE id=?",
-            params![at, now(), id],
-        )?;
+        validate_interval(&c, "focus_intervals", session, Some(id), &start, Some(at))?;
+        if start == at {
+            c.execute("DELETE FROM focus_intervals WHERE id=?", [id])?;
+        } else {
+            c.execute(
+                "UPDATE focus_intervals SET ended_at=?,updated_at=? WHERE id=?",
+                params![at, now(), id],
+            )?;
+        }
         Ok(())
     }
     pub fn manual_session(&self, game: i64, start: &str, end: &str) -> Result<i64> {
@@ -315,7 +383,7 @@ impl Database {
         let mut c = self.0.lock();
         let tx = c.transaction()?;
         let n = now();
-        tx.execute("INSERT INTO play_sessions(game_id,launched_at,exited_at,created_at,updated_at) VALUES(?,?,?,?,?)",params![game,start,end,n,n])?;
+        tx.execute("INSERT INTO play_sessions(game_id,launched_at,exited_at,created_at,updated_at,background_migrated) VALUES(?,?,?,?,?,1)",params![game,start,end,n,n])?;
         let id = tx.last_insert_rowid();
         tx.execute("INSERT INTO focus_intervals(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)",params![id,start,end,n,n])?;
         tx.commit()?;
@@ -325,12 +393,15 @@ impl Database {
         if let Some(e) = end {
             parse_range(start, e)?
         }
-        let c = self.0.lock();
-        let invalid:i64=c.query_row("SELECT COUNT(*) FROM focus_intervals WHERE play_session_id=? AND (started_at < ? OR (? IS NOT NULL AND (ended_at IS NULL OR ended_at > ?)))",params![id,start,end,end],|r|r.get(0))?;
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let invalid:i64=tx.query_row("SELECT COUNT(*) FROM background_intervals WHERE play_session_id=? AND (started_at < ? OR (? IS NOT NULL AND (ended_at IS NULL OR ended_at > ?)))",params![id,start,end,end],|r|r.get(0))?;
         if invalid > 0 {
-            bail!("FocusIntervalがSession範囲外になります")
+            bail!("バックグラウンド区間がSession範囲外になります")
         };
-        c.execute("UPDATE play_sessions SET launched_at=?,exited_at=?,needs_review=0,updated_at=? WHERE id=?",params![start,end,now(),id])?;
+        tx.execute("UPDATE play_sessions SET launched_at=?,exited_at=?,needs_review=0,updated_at=? WHERE id=?",params![start,end,now(),id])?;
+        rebuild_focus_mirror(&tx, id)?;
+        tx.commit()?;
         Ok(())
     }
     pub fn delete_session(&self, id: i64) -> Result<()> {
@@ -347,31 +418,52 @@ impl Database {
     }
     pub fn create_interval(&self, session: i64, start: &str, end: &str) -> Result<i64> {
         parse_range(start, end)?;
-        let c = self.0.lock();
-        validate_interval(&c, session, None, start, Some(end))?;
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        validate_interval(&tx, "background_intervals", session, None, start, Some(end))?;
         let n = now();
-        c.execute("INSERT INTO focus_intervals(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)",params![session,start,end,n,n])?;
-        Ok(c.last_insert_rowid())
+        tx.execute("INSERT INTO background_intervals(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)",params![session,start,end,n,n])?;
+        let id = tx.last_insert_rowid();
+        rebuild_focus_mirror(&tx, session)?;
+        tx.commit()?;
+        Ok(id)
     }
     pub fn update_interval(&self, id: i64, start: &str, end: &str) -> Result<()> {
         parse_range(start, end)?;
-        let c = self.0.lock();
-        let session: i64 = c.query_row(
-            "SELECT play_session_id FROM focus_intervals WHERE id=?",
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let session: i64 = tx.query_row(
+            "SELECT play_session_id FROM background_intervals WHERE id=?",
             [id],
             |r| r.get(0),
         )?;
-        validate_interval(&c, session, Some(id), start, Some(end))?;
-        c.execute(
-            "UPDATE focus_intervals SET started_at=?,ended_at=?,updated_at=? WHERE id=?",
+        validate_interval(
+            &tx,
+            "background_intervals",
+            session,
+            Some(id),
+            start,
+            Some(end),
+        )?;
+        tx.execute(
+            "UPDATE background_intervals SET started_at=?,ended_at=?,updated_at=? WHERE id=?",
             params![start, end, now(), id],
         )?;
+        rebuild_focus_mirror(&tx, session)?;
+        tx.commit()?;
         Ok(())
     }
     pub fn delete_interval(&self, id: i64) -> Result<()> {
-        self.0
-            .lock()
-            .execute("DELETE FROM focus_intervals WHERE id=?", [id])?;
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let session: i64 = tx.query_row(
+            "SELECT play_session_id FROM background_intervals WHERE id=?",
+            [id],
+            |r| r.get(0),
+        )?;
+        tx.execute("DELETE FROM background_intervals WHERE id=?", [id])?;
+        rebuild_focus_mirror(&tx, session)?;
+        tx.commit()?;
         Ok(())
     }
     pub fn update_play_status(&self, game: i64, status: &str) -> Result<()> {
@@ -416,8 +508,8 @@ impl Database {
         rows.into_iter()
             .map(|(id, game_id, name, marked_at)| {
                 let playtime_seconds: i64 = c.query_row(
-                    "SELECT COALESCE(SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(f.ended_at,?),?)) AS INTEGER)-CAST(strftime('%s',f.started_at) AS INTEGER))),0) FROM focus_intervals f JOIN play_sessions s ON s.id=f.play_session_id WHERE s.game_id=? AND f.started_at<?",
-                    params![marked_at, marked_at, game_id, marked_at],
+                    "SELECT MAX(0,COALESCE(SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(s.exited_at,?),?)) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))),0)-COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(b.ended_at,?),?)) AS INTEGER)-CAST(strftime('%s',MAX(b.started_at,s2.launched_at)) AS INTEGER))) FROM background_intervals b JOIN play_sessions s2 ON s2.id=b.play_session_id WHERE s2.game_id=? AND b.started_at<?),0)) FROM play_sessions s WHERE s.game_id=? AND s.launched_at<?",
+                    params![marked_at, marked_at, marked_at, marked_at, game_id, marked_at, game_id, marked_at],
                     |r| r.get(0),
                 )?;
                 let since_previous_seconds = (playtime_seconds - previous).max(0);
@@ -446,9 +538,50 @@ impl Database {
             "UPDATE focus_intervals SET ended_at=?,updated_at=? WHERE ended_at IS NULL",
             params![at, now()],
         )?;
+        tx.execute(
+            "UPDATE background_intervals SET ended_at=?,updated_at=? WHERE ended_at IS NULL",
+            params![at, now()],
+        )?;
         tx.execute("UPDATE play_sessions SET exited_at=?,needs_review=1,updated_at=? WHERE exited_at IS NULL",params![at,now()])?;
         tx.commit()?;
         Ok(n)
+    }
+    pub fn migrate_focus_intervals(&self) -> Result<usize> {
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let sessions: Vec<(i64, String, String)> = {
+            let mut query = tx.prepare("SELECT id,launched_at,exited_at FROM play_sessions WHERE background_migrated=0 AND exited_at IS NOT NULL ORDER BY id")?;
+            query
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        for (session, start, end) in &sessions {
+            let focus = load_ranges(&tx, "focus_intervals", *session)?;
+            insert_complement(&tx, "background_intervals", *session, start, end, &focus)?;
+            let background = load_ranges(&tx, "background_intervals", *session)?;
+            let total = range_seconds(start, end)?;
+            let foreground_seconds: i64 = focus
+                .iter()
+                .map(|(start, end)| range_seconds(start, end))
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .sum();
+            let background_seconds: i64 = background
+                .iter()
+                .map(|(start, end)| range_seconds(start, end))
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .sum();
+            if total - background_seconds != foreground_seconds {
+                bail!("セッション {session} の旧プレイ時間を安全に移行できません")
+            }
+            tx.execute(
+                "UPDATE play_sessions SET background_migrated=1,updated_at=? WHERE id=?",
+                params![now(), session],
+            )?;
+        }
+        tx.commit()?;
+        Ok(sessions.len())
     }
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
         Ok(self
@@ -486,8 +619,8 @@ impl Database {
 }
 
 const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
-COALESCE((SELECT SUM(CAST(strftime('%s',COALESCE(f.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',f.started_at) AS INTEGER)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id),0) total_playtime_seconds,
-COALESCE((SELECT SUM(CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER)) FROM play_sessions s WHERE s.game_id=g.id AND s.exited_at IS NOT NULL),0) total_running_seconds,
+MAX(0,COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))) FROM play_sessions s WHERE s.game_id=g.id),0)-COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))) FROM background_intervals b JOIN play_sessions bs ON bs.id=b.play_session_id WHERE bs.game_id=g.id),0)) total_playtime_seconds,
+COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))) FROM play_sessions s WHERE s.game_id=g.id),0) total_running_seconds,
 (SELECT MAX(COALESCE(f.ended_at,f.started_at)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id) last_played,
 (SELECT COUNT(*) FROM play_sessions s WHERE s.game_id=g.id) session_count,
 g.play_status
@@ -517,6 +650,14 @@ fn parse_range(start: &str, end: &str) -> Result<()> {
         bail!("終了日時は開始日時以降にしてください")
     };
     Ok(())
+}
+fn range_seconds(start: &str, end: &str) -> Result<i64> {
+    let start = DateTime::parse_from_rfc3339(start).context("開始日時が不正です")?;
+    let end = DateTime::parse_from_rfc3339(end).context("終了日時が不正です")?;
+    // Match SQLite strftime('%s') exactly. Subtracting the chrono Duration and
+    // truncating each interval independently loses fractional seconds and can
+    // make a perfectly partitioned session fail migration validation.
+    Ok(end.timestamp() - start.timestamp())
 }
 fn brand_id(c: &Connection, name: Option<&str>) -> Result<Option<i64>> {
     let Some(name) = name.map(str::trim).filter(|s| !s.is_empty()) else {
@@ -553,6 +694,7 @@ pub fn normalize_path(path: &str) -> String {
 }
 fn validate_interval(
     c: &Connection,
+    table: &str,
     session: i64,
     exclude: Option<i64>,
     start: &str,
@@ -568,13 +710,66 @@ fn validate_interval(
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     if start < ss.as_str() || se.as_deref().is_some_and(|x| end.is_none_or(|e| e > x)) {
-        bail!("FocusIntervalはSession範囲内にしてください")
+        bail!("区間はSession範囲内にしてください")
     };
-    let overlap:i64=c.query_row("SELECT COUNT(*) FROM focus_intervals WHERE play_session_id=? AND (? IS NULL OR id<>?) AND COALESCE(ended_at,'9999') > ? AND COALESCE(?, '9999') > started_at",params![session,exclude,exclude,start,end],|r|r.get(0))?;
+    let overlap:i64=c.query_row(&format!("SELECT COUNT(*) FROM {table} WHERE play_session_id=? AND (? IS NULL OR id<>?) AND COALESCE(ended_at,'9999') > ? AND COALESCE(?, '9999') > started_at"),params![session,exclude,exclude,start,end],|r|r.get(0))?;
     if overlap > 0 {
-        bail!("FocusIntervalが既存の区間と重複しています")
+        bail!("区間が既存の区間と重複しています")
     };
     Ok(())
+}
+
+fn load_ranges(c: &Connection, table: &str, session: i64) -> Result<Vec<(String, String)>> {
+    let mut query = c.prepare(&format!("SELECT started_at,ended_at FROM {table} WHERE play_session_id=? AND ended_at IS NOT NULL ORDER BY started_at"))?;
+    Ok(query
+        .query_map([session], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+fn insert_complement(
+    c: &Connection,
+    table: &str,
+    session: i64,
+    start: &str,
+    end: &str,
+    excluded: &[(String, String)],
+) -> Result<()> {
+    let mut cursor = start.to_string();
+    for (range_start, range_end) in excluded {
+        let clamped_start = range_start.as_str().max(start).min(end);
+        let clamped_end = range_end.as_str().max(start).min(end);
+        if cursor.as_str() < clamped_start {
+            insert_range(c, table, session, &cursor, clamped_start)?;
+        }
+        if clamped_end > cursor.as_str() {
+            cursor = clamped_end.to_string();
+        }
+    }
+    if cursor.as_str() < end {
+        insert_range(c, table, session, &cursor, end)?;
+    }
+    Ok(())
+}
+
+fn insert_range(c: &Connection, table: &str, session: i64, start: &str, end: &str) -> Result<()> {
+    let n = now();
+    c.execute(&format!("INSERT INTO {table}(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)"), params![session,start,end,n,n])?;
+    Ok(())
+}
+
+fn rebuild_focus_mirror(c: &Connection, session: i64) -> Result<()> {
+    let (start, end): (String, Option<String>) = c.query_row(
+        "SELECT launched_at,exited_at FROM play_sessions WHERE id=?",
+        [session],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let Some(end) = end else { return Ok(()) };
+    let background = load_ranges(c, "background_intervals", session)?;
+    c.execute(
+        "DELETE FROM focus_intervals WHERE play_session_id=?",
+        [session],
+    )?;
+    insert_complement(c, "focus_intervals", session, &start, &end, &background)
 }
 
 #[cfg(test)]
@@ -614,12 +809,14 @@ mod tests {
         let s = d
             .manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
             .unwrap();
+        d.create_interval(s, "2026-01-01T00:30:00Z", "2026-01-01T00:40:00Z")
+            .unwrap();
         assert!(
-            d.create_interval(s, "2026-01-01T00:30:00Z", "2026-01-01T00:40:00Z")
+            d.create_interval(s, "2026-01-01T00:35:00Z", "2026-01-01T00:45:00Z")
                 .is_err()
         );
         assert!(
-            d.update_session(s, "2026-01-01T00:10:00Z", Some("2026-01-01T01:00:00Z"))
+            d.update_session(s, "2026-01-01T00:35:00Z", Some("2026-01-01T01:00:00Z"))
                 .is_err()
         );
     }
@@ -637,7 +834,7 @@ mod tests {
         );
     }
     #[test]
-    fn timestamp_playtime_is_derived_from_focus_intervals() {
+    fn timestamp_playtime_is_derived_from_sessions_minus_background() {
         let d = Database::memory().unwrap();
         let g = game(&d);
         d.manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
@@ -656,6 +853,76 @@ mod tests {
         assert_eq!(points[1].since_previous_seconds, 2700);
         d.delete_timestamp(second).unwrap();
         assert_eq!(d.timestamps(g).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn legacy_focus_is_migrated_to_its_background_complement() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let n = now();
+        let c = d.0.lock();
+        c.execute("INSERT INTO play_sessions(game_id,launched_at,exited_at,created_at,updated_at) VALUES(?,?,?,?,?)", params![g,"2026-01-01T00:00:00Z","2026-01-01T01:00:00Z",n,n]).unwrap();
+        let session = c.last_insert_rowid();
+        c.execute("INSERT INTO focus_intervals(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)", params![session,"2026-01-01T00:10:00Z","2026-01-01T00:40:00Z",n,n]).unwrap();
+        drop(c);
+
+        assert_eq!(d.migrate_focus_intervals().unwrap(), 1);
+        let intervals = d.intervals(session).unwrap();
+        assert_eq!(intervals.len(), 2);
+        assert_eq!(intervals[0].started_at, "2026-01-01T00:00:00Z");
+        assert_eq!(
+            intervals[0].ended_at.as_deref(),
+            Some("2026-01-01T00:10:00Z")
+        );
+        assert_eq!(intervals[1].started_at, "2026-01-01T00:40:00Z");
+        assert_eq!(d.list_sessions(g).unwrap()[0].playtime_seconds, 1800);
+        assert_eq!(d.migrate_focus_intervals().unwrap(), 0);
+    }
+    #[test]
+    fn migration_validation_matches_sqlite_second_rounding() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let n = now();
+        let c = d.0.lock();
+        c.execute("INSERT INTO play_sessions(game_id,launched_at,exited_at,created_at,updated_at) VALUES(?,?,?,?,?)", params![g,"2026-01-01T00:00:00.900Z","2026-01-01T00:00:03.100Z",n,n]).unwrap();
+        let session = c.last_insert_rowid();
+        c.execute("INSERT INTO focus_intervals(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)", params![session,"2026-01-01T00:00:00.900Z","2026-01-01T00:00:01.100Z",n,n]).unwrap();
+        c.execute("INSERT INTO focus_intervals(play_session_id,started_at,ended_at,created_at,updated_at) VALUES(?,?,?,?,?)", params![session,"2026-01-01T00:00:02.900Z","2026-01-01T00:00:03.100Z",n,n]).unwrap();
+        drop(c);
+
+        assert_eq!(d.migrate_focus_intervals().unwrap(), 1);
+        assert_eq!(d.list_sessions(g).unwrap()[0].playtime_seconds, 2);
+    }
+    #[test]
+    fn background_tracking_derives_playtime_and_keeps_focus_mirror() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let session = d.start_session(g, "2026-01-01T00:00:00Z").unwrap();
+        let background = d.start_interval(session, "2026-01-01T00:00:00Z").unwrap();
+        d.end_interval(background, "2026-01-01T00:10:00Z").unwrap();
+        let focus = d
+            .start_legacy_focus_interval(session, "2026-01-01T00:10:00Z")
+            .unwrap();
+        d.end_legacy_focus_interval(focus, "2026-01-01T00:20:00Z")
+            .unwrap();
+        let background = d.start_interval(session, "2026-01-01T00:20:00Z").unwrap();
+        d.end_interval(background, "2026-01-01T00:30:00Z").unwrap();
+        d.end_session(session, "2026-01-01T00:30:00Z").unwrap();
+
+        let recorded = d.list_sessions(g).unwrap().remove(0);
+        assert_eq!(recorded.running_seconds, Some(1800));
+        assert_eq!(recorded.background_seconds, 1200);
+        assert_eq!(recorded.playtime_seconds, 600);
+        let legacy_focus_seconds: i64 = d
+            .0
+            .lock()
+            .query_row(
+                "SELECT SUM(strftime('%s',ended_at)-strftime('%s',started_at)) FROM focus_intervals WHERE play_session_id=?",
+                [session],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_focus_seconds, recorded.playtime_seconds);
     }
     #[test]
     fn brand_list_is_independent_from_game_filtering() {

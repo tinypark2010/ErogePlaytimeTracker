@@ -37,11 +37,12 @@ pub struct PlaySession {
     pub launched_at: String,
     pub exited_at: Option<String>,
     pub needs_review: bool,
-    pub foreground_seconds: i64,
+    pub playtime_seconds: i64,
+    pub background_seconds: i64,
     pub running_seconds: Option<i64>,
 }
 #[derive(Debug, Clone, Serialize)]
-pub struct FocusInterval {
+pub struct BackgroundInterval {
     pub id: i64,
     pub play_session_id: i64,
     pub started_at: String,

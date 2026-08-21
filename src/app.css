@@ -297,6 +297,27 @@ small {
 .session {
   grid-template-columns: 1fr 120px;
 }
+@media (max-width: 700px) {
+  .session {
+    grid-template-columns: 1fr;
+  }
+}
+.session-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+.session-breakdown span {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: #111018;
+}
+.session-breakdown small {
+  color: #aaa3b4;
+}
 .tracking-status {
   white-space: nowrap;
   color: #aaa3b4;

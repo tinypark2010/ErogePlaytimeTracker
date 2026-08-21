@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
-  FocusInterval,
+  BackgroundInterval,
   GameDetail,
   GameSummary,
   GameTimestamp,
@@ -50,7 +50,8 @@ export const api = {
   removeExecutable: (id: number) => invoke<void>('remove_game_executable', { id }),
   launchGame: (gameId: number) => invoke<void>('launch_game', { gameId }),
   sessions: (gameId: number) => invoke<Session[]>('list_sessions', { gameId }),
-  intervals: (sessionId: number) => invoke<FocusInterval[]>('list_focus_intervals', { sessionId }),
+  intervals: (sessionId: number) =>
+    invoke<BackgroundInterval[]>('list_background_intervals', { sessionId }),
   manualSession: (gameId: number, start: string, end: string) =>
     invoke<number>('create_manual_session', { gameId, start, end }),
   updateSession: (id: number, start: string, end: string | null) =>
@@ -58,10 +59,10 @@ export const api = {
   deleteSession: (id: number) => invoke<void>('delete_session', { id }),
   deleteAllSessions: (gameId: number) => invoke<number>('delete_all_sessions', { gameId }),
   createInterval: (sessionId: number, start: string, end: string) =>
-    invoke<number>('create_focus_interval', { sessionId, start, end }),
+    invoke<number>('create_background_interval', { sessionId, start, end }),
   updateInterval: (id: number, start: string, end: string) =>
-    invoke<void>('update_focus_interval', { id, start, end }),
-  deleteInterval: (id: number) => invoke<void>('delete_focus_interval', { id }),
+    invoke<void>('update_background_interval', { id, start, end }),
+  deleteInterval: (id: number) => invoke<void>('delete_background_interval', { id }),
   timestamps: (gameId: number) => invoke<GameTimestamp[]>('list_game_timestamps', { gameId }),
   createTimestamp: (gameId: number, name: string) =>
     invoke<number>('create_game_timestamp', { gameId, name }),

@@ -10,9 +10,9 @@
 Create a Windows desktop application that:
 
 - Tracks play sessions for registered games.
-- Counts **play time primarily while the game is the foreground window**.
+- Counts play time as **session running time minus background time**.
 - Records one logical `PlaySession` per game launch.
-- Preserves the foreground periods inside that launch as `FocusInterval` records.
+- Preserves the excluded background periods inside that launch as `BackgroundInterval` records.
 - Lets the user review and edit recorded sessions later.
 - Retrieves game metadata such as title, brand, release date, and thumbnail from ErogameScape (批評空間).
 - Lets the user filter games by brand and sort by values such as total play time and last played time.
@@ -194,12 +194,12 @@ PlaySession
 
 Do not store total play duration as the source of truth if it can be calculated.
 
-### 4.5 FocusInterval
+### 4.5 BackgroundInterval
 
-Represents a period during a `PlaySession` in which the game was considered actively played.
+Represents a period during a `PlaySession` in which the running game was not the foreground game.
 
 ```text
-FocusInterval
+BackgroundInterval
 - id
 - play_session_id
 - started_at
@@ -208,18 +208,20 @@ FocusInterval
 - updated_at
 ```
 
-The **foreground play time** of a session is:
+The play time of a session is:
 
 ```text
-SUM(FocusInterval.ended_at - FocusInterval.started_at)
+(PlaySession.exited_at - PlaySession.launched_at)
+- SUM(BackgroundInterval.ended_at - BackgroundInterval.started_at)
 ```
 
-The total foreground play time of a game is the sum across all of its sessions.
+The total play time of a game is the sum across all of its sessions.
 
 This model intentionally preserves both:
 
 - total process/session time;
-- actual foreground play time.
+- excluded background time;
+- derived play time.
 
 Example:
 
@@ -233,7 +235,8 @@ Foreground:          21:30 - 22:00
 Game exited:         22:00
 
 Session duration:    2h 00m
-Foreground playtime: 1h 40m
+Background time:     0h 20m
+Playtime:            1h 40m
 ```
 
 ---
@@ -244,9 +247,9 @@ Foreground playtime: 1h 40m
 
 The preferred play-time definition is:
 
-> A game counts as actively played while one of its registered executables owns the current foreground window.
+> Start with the time for which the game session existed, then exclude periods in which the game was in the background.
 
-A game can remain running in the background without accumulating foreground play time.
+A game can remain running in the background, but that period is recorded as excluded time.
 
 ### 5.2 Foreground-window detection
 
@@ -273,9 +276,9 @@ Resolve executable
         v
 Match executable against registered GameExecutable rows
         |
-        +--> registered game -> begin/continue FocusInterval
+        +--> registered game -> end its BackgroundInterval
         |
-        +--> anything else   -> end current FocusInterval
+        +--> anything else   -> begin BackgroundInterval for running games
 ```
 
 ### 5.3 Event-driven + reconciliation
@@ -297,9 +300,9 @@ Implementation may use Windows process APIs, event subscriptions, or a conservat
 
 1. Registered game starts.
 2. Create one `PlaySession` with `launched_at`.
-3. Foreground transitions create/end `FocusInterval` records.
+3. Foreground transitions create/end `BackgroundInterval` records.
 4. Registered game exits.
-5. End any open `FocusInterval`.
+5. End any open `BackgroundInterval`.
 6. Set `PlaySession.exited_at`.
 
 ### 5.5 Multiple executables for one game
@@ -327,8 +330,8 @@ Transition from 1+ to 0 ends the session.
 The design should tolerate multiple registered games running at the same time.
 
 - Each running game may have its own `PlaySession`.
-- Only the game that owns the foreground window should accumulate a `FocusInterval`.
-- Switching foreground directly from Game A to Game B ends A's interval and starts B's interval.
+- Every running game other than the foreground game accumulates a `BackgroundInterval`.
+- Switching foreground directly from Game A to Game B starts A's interval and ends B's interval.
 
 ---
 
@@ -342,7 +345,8 @@ For a game, show at minimum:
 
 - launch/start datetime;
 - exit/end datetime;
-- foreground play time;
+- derived play time;
+- excluded background time;
 - process/session duration.
 
 ### Session editing
@@ -352,20 +356,20 @@ Allow editing:
 - `launched_at`;
 - `exited_at`.
 
-### Focus interval editing
+### Background interval editing
 
-Because foreground intervals are the source of truth for active play time, provide a detailed session view that allows:
+Because background intervals are the source of truth for excluded time, provide a detailed session view that allows:
 
-- adding a focus interval;
-- editing start/end of a focus interval;
-- deleting an incorrect focus interval.
+- adding a background interval;
+- editing start/end of a background interval;
+- deleting an incorrect background interval.
 
 Validation:
 
 - `ended_at >= started_at`;
-- focus intervals should remain inside the parent session's start/end range when the session has both bounds;
-- reject or normalize overlapping focus intervals inside the same session;
-- changing session bounds must not silently produce invalid focus intervals.
+- background intervals should remain inside the parent session's start/end range when the session has both bounds;
+- reject or normalize overlapping background intervals inside the same session;
+- changing session bounds must not silently produce invalid background intervals.
 
 ### Manual session creation
 
@@ -374,7 +378,11 @@ Allow a user to add a session manually.
 For a simple manual entry, it is acceptable to create:
 
 - one `PlaySession`;
-- one `FocusInterval` covering the same range.
+- no `BackgroundInterval` (the manually entered range is all play time).
+
+### Legacy compatibility
+
+Keep the original `focus_intervals` table for rollback compatibility. Existing focus data is migrated by storing its complement inside each closed session as `background_intervals`. New tracking and manual edits keep `focus_intervals` updated as a compatibility mirror, while all current-version calculations use sessions minus background intervals.
 
 ---
 
@@ -462,7 +470,7 @@ Each game entry should show at least:
 - thumbnail;
 - title;
 - brand;
-- total foreground play time;
+- total play time;
 - last played datetime.
 
 ### 8.2 Filter
@@ -481,7 +489,7 @@ Support at least:
 - brand;
 - release date;
 - registration date;
-- total foreground play time;
+- total play time;
 - last played datetime;
 - play-session count.
 
@@ -496,7 +504,7 @@ Show:
 - brand;
 - release date;
 - registered executable paths;
-- total foreground play time;
+- total play time;
 - total launched/running time if useful;
 - last played datetime;
 - session history.
@@ -562,10 +570,10 @@ create_manual_session
 update_session
 delete_session
 
-list_focus_intervals
-create_focus_interval
-update_focus_interval
-delete_focus_interval
+list_background_intervals
+create_background_interval
+update_background_interval
+delete_background_interval
 
 fetch_erogamescape_metadata
 refresh_game_metadata
@@ -589,7 +597,8 @@ brands
 games
 game_executables
 play_sessions
-focus_intervals
+background_intervals
+focus_intervals            legacy compatibility mirror
 settings
 ```
 
@@ -598,6 +607,7 @@ Potential indexes:
 ```text
 game_executables(path)
 play_sessions(game_id, launched_at)
+background_intervals(play_session_id, started_at)
 focus_intervals(play_session_id, started_at)
 games(brand_id)
 ```
@@ -623,10 +633,11 @@ Do not duplicate statistics in the database unless profiling proves it necessary
 
 Derive:
 
-### Total foreground play time
+### Total play time
 
 ```text
-SUM(all FocusInterval durations for game)
+SUM(all PlaySession durations for game)
+- SUM(all BackgroundInterval durations for game)
 ```
 
 ### Last played time
@@ -634,7 +645,7 @@ SUM(all FocusInterval durations for game)
 Prefer:
 
 ```text
-MAX(FocusInterval.ended_at)
+The end of the most recent foreground portion, derived from the session end and any trailing BackgroundInterval.
 ```
 
 with a reasonable fallback for an active session if needed.
@@ -663,7 +674,8 @@ running games
 running process IDs per game
 active foreground game
 open PlaySession IDs
-open FocusInterval ID
+open BackgroundInterval IDs by session
+open legacy FocusInterval ID
 ```
 
 Database writes should happen at meaningful state transitions rather than on every polling tick.
@@ -784,9 +796,9 @@ A single installer `.exe` with no manual prerequisite installation is acceptable
 - Detect registered processes.
 - Start/end one `PlaySession` per logical game launch.
 - Detect foreground game.
-- Record `FocusInterval`s.
+- Record `BackgroundInterval`s and maintain the legacy focus mirror.
 - Display live/current tracking state.
-- Aggregate total foreground play time.
+- Aggregate total play time as session time minus background time.
 
 ### Phase 4 — history
 
@@ -845,7 +857,7 @@ The first usable release is complete when all of the following work:
 8. Exiting the game closes the session.
 9. Session history can be viewed.
 10. Session and focus-interval data can be edited.
-11. Total foreground play time is derived correctly.
+11. Total play time is derived correctly from session time minus background time.
 12. Games can be filtered by brand.
 13. Games can be sorted by total play time and last played time.
 14. Game metadata can be populated from ErogameScape by URL or ID.
@@ -882,7 +894,7 @@ These decisions are intentional and should not be casually changed during implem
 2. **SQLite + rusqlite** is the selected local persistence approach.
 3. Foreground time is the primary play-time metric.
 4. A launch is represented by `PlaySession`.
-5. Foreground periods inside a launch are represented by `FocusInterval`.
+5. Background periods inside a launch are represented by `BackgroundInterval`.
 6. A game can have multiple registered executables.
 7. Session state is tracked per game, not per PID.
 8. Durations are derived from timestamps rather than treated as independent authoritative values.

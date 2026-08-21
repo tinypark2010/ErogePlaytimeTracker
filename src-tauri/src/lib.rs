@@ -60,6 +60,10 @@ pub fn run() {
             if recovered > 0 {
                 log::warn!("recovered {recovered} orphan focus intervals; histories require review")
             };
+            let migrated = db.migrate_focus_intervals()?;
+            if migrated > 0 {
+                log::info!("migrated {migrated} sessions to background intervals")
+            }
             db.set_setting("last_seen", &Utc::now().to_rfc3339())?;
             let settings = db
                 .get_setting("app")?
@@ -131,14 +135,14 @@ pub fn run() {
             commands::remove_game_executable,
             commands::launch_game,
             commands::list_sessions,
-            commands::list_focus_intervals,
+            commands::list_background_intervals,
             commands::create_manual_session,
             commands::update_session,
             commands::delete_session,
             commands::delete_all_sessions,
-            commands::create_focus_interval,
-            commands::update_focus_interval,
-            commands::delete_focus_interval,
+            commands::create_background_interval,
+            commands::update_background_interval,
+            commands::delete_background_interval,
             commands::list_game_timestamps,
             commands::create_game_timestamp,
             commands::delete_game_timestamp,

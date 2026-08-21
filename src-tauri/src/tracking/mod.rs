@@ -24,7 +24,8 @@ pub struct TrackingService {
 struct Inner {
     db: Database,
     state: Mutex<TrackerState>,
-    open_interval: Mutex<Option<i64>>,
+    open_focus_interval: Mutex<Option<i64>>,
+    open_background_intervals: Mutex<HashMap<i64, i64>>,
     observed_foreground: Mutex<Option<(u32, String)>>,
     // PID -> (game ID, normalized executable path). Keeping the path prevents
     // a recycled PID from inheriting a stale game association.
@@ -38,7 +39,8 @@ impl TrackingService {
             inner: Arc::new(Inner {
                 db,
                 state: Mutex::new(TrackerState::default()),
-                open_interval: Mutex::new(None),
+                open_focus_interval: Mutex::new(None),
+                open_background_intervals: Mutex::new(HashMap::new()),
                 observed_foreground: Mutex::new(None),
                 known_pid_games: Mutex::new(HashMap::new()),
                 stop: AtomicBool::new(false),
@@ -170,6 +172,15 @@ impl TrackingService {
         for a in actions {
             match a {
                 Action::SessionStarted { game_id } => {
+                    if let Some(&session_id) = self.inner.state.lock().running().get(&game_id)
+                        && session_id >= 0
+                    {
+                        let interval = self.inner.db.start_interval(session_id, at)?;
+                        self.inner
+                            .open_background_intervals
+                            .lock()
+                            .insert(session_id, interval);
+                    }
                     log::info!("registered process detected game={game_id}")
                 }
                 Action::SessionEnded {
@@ -179,6 +190,10 @@ impl TrackingService {
                     if session_id >= 0 {
                         self.inner.db.end_session(session_id, at)?
                     }
+                    self.inner
+                        .open_background_intervals
+                        .lock()
+                        .remove(&session_id);
                     log::info!("session ended game={game_id}")
                 }
                 Action::FocusStarted {
@@ -186,14 +201,32 @@ impl TrackingService {
                     session_id,
                 } => {
                     if session_id >= 0 {
-                        *self.inner.open_interval.lock() =
-                            Some(self.inner.db.start_interval(session_id, at)?)
+                        if let Some(id) = self
+                            .inner
+                            .open_background_intervals
+                            .lock()
+                            .remove(&session_id)
+                        {
+                            self.inner.db.end_interval(id, at)?;
+                        }
+                        *self.inner.open_focus_interval.lock() =
+                            Some(self.inner.db.start_legacy_focus_interval(session_id, at)?)
                     }
                     log::info!("foreground entered game={game_id}")
                 }
-                Action::FocusEnded { game_id } => {
-                    if let Some(id) = self.inner.open_interval.lock().take() {
-                        self.inner.db.end_interval(id, at)?
+                Action::FocusEnded {
+                    game_id,
+                    session_id,
+                } => {
+                    if let Some(id) = self.inner.open_focus_interval.lock().take() {
+                        self.inner.db.end_legacy_focus_interval(id, at)?
+                    }
+                    if session_id >= 0 {
+                        let id = self.inner.db.start_interval(session_id, at)?;
+                        self.inner
+                            .open_background_intervals
+                            .lock()
+                            .insert(session_id, id);
                     }
                     log::info!("foreground left game={game_id}")
                 }

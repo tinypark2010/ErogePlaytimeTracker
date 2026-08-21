@@ -12,7 +12,13 @@
     playStatusLabel,
     playStatusOptions,
   } from '../lib/time';
-  import type { FocusInterval, GameDetail, GameTimestamp, PlayStatus, Session } from '../lib/types';
+  import type {
+    BackgroundInterval,
+    GameDetail,
+    GameTimestamp,
+    PlayStatus,
+    Session,
+  } from '../lib/types';
   type ConfirmAction = 'session' | 'all-sessions' | 'game';
   export let gameId: number;
   export let onback: () => void;
@@ -20,7 +26,7 @@
     sessions: Session[] = [],
     timestamps: GameTimestamp[] = [],
     selected: Session | null = null,
-    intervals: FocusInterval[] = [],
+    intervals: BackgroundInterval[] = [],
     error = '',
     newPath = '',
     manualStart = '',
@@ -47,7 +53,7 @@
     confirmAction === 'session'
       ? 'このセッションを本当に削除しますか？'
       : confirmAction === 'all-sessions'
-        ? `${sessions.length}件のセッションと最前面記録をすべて削除します。元に戻せません。`
+        ? `${sessions.length}件のセッションと除外時間の記録をすべて削除します。元に戻せません。`
         : 'ゲームとすべての履歴を削除します。元に戻せません。';
   async function load() {
     try {
@@ -155,7 +161,7 @@
       error = `削除できませんでした: ${String(e)}`;
     }
   }
-  async function saveInterval(i: FocusInterval) {
+  async function saveInterval(i: BackgroundInterval) {
     try {
       await api.updateInterval(i.id, utc(i.started_at), utc(i.ended_at!));
       intervals = await api.intervals(i.play_session_id);
@@ -439,7 +445,7 @@
           onclick={() => select(s)}
           ><span
             >{local(s.launched_at)} → {local(s.exited_at)}{s.needs_review ? ' ・ 要確認' : ''}</span
-          ><strong>{duration(s.foreground_seconds)}</strong></button
+          ><strong>{duration(s.playtime_seconds)}</strong></button
         >{/each}
     </section>
   </section>{/if}
@@ -447,6 +453,18 @@
     <section class="panel editor">
       <button class="close" onclick={() => (selected = null)}>×</button>
       <h2>Session #{selected.id}</h2>
+      <div class="session-breakdown">
+        <span><small>プレイ時間</small><strong>{duration(selected.playtime_seconds)}</strong></span>
+        <span
+          ><small>起動時間</small><strong
+            >{duration(
+              selected.running_seconds ??
+                Math.max(0, Math.floor((nowMs - new Date(selected.launched_at).getTime()) / 1000)),
+            )}</strong
+          ></span
+        >
+        <span><small>除外時間</small><strong>{duration(selected.background_seconds)}</strong></span>
+      </div>
       <label
         >開始<input
           type="datetime-local"
@@ -468,8 +486,10 @@
           onclick={removeSession}>削除</button
         >
       </div>
-      <h3>最前面でプレイしていた時間</h3>
-      <p class="hint">ゲームが最前面ではなかった時間はプレイ時間から除外されます。</p>
+      <h3>プレイ時間から除外した時間</h3>
+      <p class="hint">
+        アプリがバックグラウンドにあった区間です。起動時間からこの合計を除外します。
+      </p>
       {#each intervals as i}<div class:live-interval={!i.ended_at} class="interval">
           {#if i.ended_at}<input
               type="datetime-local"
@@ -488,11 +508,11 @@
                 await load();
               }}>削除</button
             >{:else}<span
-              >{local(i.started_at)} ～ 最前面で記録中（{duration(
+              >{local(i.started_at)} ～ バックグラウンド時間を記録中（{duration(
                 Math.max(0, Math.floor((nowMs - new Date(i.started_at).getTime()) / 1000)),
               )}）</span
             >{/if}
-        </div>{/each}<button onclick={addInterval}>最前面区間を追加</button>{#if error}<p
+        </div>{/each}<button onclick={addInterval}>除外区間を追加</button>{#if error}<p
           class="error"
         >
           {error}

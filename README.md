@@ -1,6 +1,6 @@
 # Eroge Playtime Tracker
 
-Windows上で、登録したVisual Novel / エロゲが最前面にある時間を記録するローカル完結型デスクトップアプリです。1回の起動を `PlaySession`、その中の最前面期間を `FocusInterval` としてSQLiteへ保存します。
+Windows上で、登録したVisual Novel / エロゲの起動時間からバックグラウンド時間を除外してプレイ時間を記録する、ローカル完結型デスクトップアプリです。1回の起動を `PlaySession`、その中の除外期間を `BackgroundInterval` としてSQLiteへ保存します。
 
 ## 技術スタック
 
@@ -58,7 +58,9 @@ durationはDBへ重複保存せず、Session/Intervalのtimestampからquery時�
 
 登録exeをWindows APIで列挙し、1本のゲームに属するprocessが0→1以上でSessionを開始、1以上→0で終了します。そのためlauncher.exeからgame.exeへ移行してもSessionは二重になりません。
 
-foregroundは `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` を主な通知経路とし、`GetForegroundWindow` / `GetWindowThreadProcessId` / process image pathで登録exeと照合します。通知取りこぼし対策として既定3秒（2〜30秒）のreconciliationも実行します。ゲーム間の直接切替や非ゲームへのAlt+Tabでは、同じSession内のFocusIntervalを適切に閉じて再開します。
+foregroundは `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` を主な通知経路とし、`GetForegroundWindow` / `GetWindowThreadProcessId` / process image pathで登録exeと照合します。通知取りこぼし対策として既定3秒（2〜30秒）のreconciliationも実行します。ゲームが最前面を離れると `BackgroundInterval` を開始し、最前面へ戻ると終了します。プレイ時間はSessionの起動時間からBackgroundIntervalの合計を引いて算出します。
+
+旧バージョンへのロールバック互換性のため、従来の `focus_intervals` テーブルは削除せず、互換用ミラーとして新しい記録にも併記します。旧データは初回起動時にFocus区間の補集合をBackground区間として移行し、移行前後のプレイ秒数が一致した場合だけ確定します。
 
 終了時はopen recordを現在時刻で閉じます。異常終了後はperiodic `last_seen` より後を加算せず、orphan recordを閉じて `needs_review` にします。
 

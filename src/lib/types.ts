@@ -38,10 +38,11 @@ export interface Session {
   launched_at: string;
   exited_at: string | null;
   needs_review: boolean;
-  foreground_seconds: number;
+  playtime_seconds: number;
+  background_seconds: number;
   running_seconds: number | null;
 }
-export interface FocusInterval {
+export interface BackgroundInterval {
   id: number;
   play_session_id: number;
   started_at: string;

@@ -129,7 +129,10 @@ pub fn list_sessions(state: State<AppState>, game_id: i64) -> Cmd<Vec<PlaySessio
     state.db.list_sessions(game_id).map_err(err)
 }
 #[tauri::command]
-pub fn list_focus_intervals(state: State<AppState>, session_id: i64) -> Cmd<Vec<FocusInterval>> {
+pub fn list_background_intervals(
+    state: State<AppState>,
+    session_id: i64,
+) -> Cmd<Vec<BackgroundInterval>> {
     state.db.intervals(session_id).map_err(err)
 }
 #[tauri::command]
@@ -162,7 +165,7 @@ pub fn delete_all_sessions(state: State<AppState>, game_id: i64) -> Cmd<usize> {
     state.db.delete_game_sessions(game_id).map_err(err)
 }
 #[tauri::command]
-pub fn create_focus_interval(
+pub fn create_background_interval(
     state: State<AppState>,
     session_id: i64,
     start: String,
@@ -174,7 +177,7 @@ pub fn create_focus_interval(
         .map_err(err)
 }
 #[tauri::command]
-pub fn update_focus_interval(
+pub fn update_background_interval(
     state: State<AppState>,
     id: i64,
     start: String,
@@ -183,7 +186,7 @@ pub fn update_focus_interval(
     state.db.update_interval(id, &start, &end).map_err(err)
 }
 #[tauri::command]
-pub fn delete_focus_interval(state: State<AppState>, id: i64) -> Cmd<()> {
+pub fn delete_background_interval(state: State<AppState>, id: i64) -> Cmd<()> {
     state.db.delete_interval(id).map_err(err)
 }
 #[tauri::command]

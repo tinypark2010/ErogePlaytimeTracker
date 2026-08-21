@@ -4,7 +4,7 @@ pub enum Action {
     SessionStarted { game_id: i64 },
     SessionEnded { game_id: i64, session_id: i64 },
     FocusStarted { game_id: i64, session_id: i64 },
-    FocusEnded { game_id: i64 },
+    FocusEnded { game_id: i64, session_id: i64 },
 }
 #[derive(Default)]
 pub struct TrackerState {
@@ -26,7 +26,10 @@ impl TrackerState {
         for g in ended {
             if self.focused == Some(g) {
                 self.focused = None;
-                a.push(Action::FocusEnded { game_id: g })
+                a.push(Action::FocusEnded {
+                    game_id: g,
+                    session_id: self.running[&g],
+                })
             }
             let s = self.running.remove(&g).unwrap();
             a.push(Action::SessionEnded {
@@ -50,7 +53,10 @@ impl TrackerState {
         }
         let mut a = vec![];
         if let Some(g) = self.focused.take() {
-            a.push(Action::FocusEnded { game_id: g })
+            a.push(Action::FocusEnded {
+                game_id: g,
+                session_id: self.running[&g],
+            })
         }
         if let Some(g) = game {
             self.focused = Some(g);
@@ -110,7 +116,7 @@ mod tests {
         assert_eq!(s.foreground(Some(1)).len(), 1);
         let x = s.foreground(Some(2));
         assert_eq!(x.len(), 2);
-        assert!(matches!(x[0], Action::FocusEnded { game_id: 1 }));
+        assert!(matches!(x[0], Action::FocusEnded { game_id: 1, .. }));
         assert!(matches!(x[1], Action::FocusStarted { game_id: 2, .. }));
         assert_eq!(s.foreground(None).len(), 1);
         assert_eq!(s.foreground(Some(1)).len(), 1);
