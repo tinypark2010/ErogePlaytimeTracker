@@ -98,7 +98,12 @@ pub fn open_external_url(url: String) -> Cmd<()> {
 }
 #[tauri::command]
 pub fn delete_game(state: State<AppState>, id: i64) -> Cmd<()> {
-    state.db.delete_game(id).map_err(err)
+    state.db.delete_game(id).map_err(err)?;
+    let directory = state.screenshots.join(id.to_string());
+    if directory.exists() {
+        std::fs::remove_dir_all(directory).map_err(err)?;
+    }
+    Ok(())
 }
 #[tauri::command]
 pub fn add_game_executable(state: State<AppState>, game_id: i64, path: String) -> Cmd<()> {
@@ -255,6 +260,7 @@ pub fn update_settings(
     if !matches!(settings.theme.as_str(), "dark" | "light" | "pink" | "blue") {
         return Err("未対応のカラーテーマです".into());
     }
+    crate::screenshot::validate_hotkey(&settings.screenshot_hotkey).map_err(err)?;
     use tauri_plugin_autostart::ManagerExt;
     let manager = app.autolaunch();
     let autostart_enabled = manager.is_enabled().map_err(err)?;
@@ -266,11 +272,85 @@ pub fn update_settings(
         }
     }
     state
+        .screenshot_service
+        .set_hotkey(settings.screenshot_hotkey.clone())
+        .map_err(err)?;
+    state
         .db
         .set_setting("app", &serde_json::to_string(&settings).map_err(err)?)
         .map_err(err)
 }
 #[tauri::command]
+pub fn validate_screenshot_hotkey(state: State<AppState>, hotkey: String) -> Cmd<()> {
+    state.screenshot_service.check_hotkey(hotkey).map_err(err)
+}
+#[tauri::command]
+pub fn suspend_screenshot_hotkey(state: State<AppState>) -> Cmd<()> {
+    state
+        .screenshot_service
+        .set_hotkey(String::new())
+        .map_err(err)
+}
+#[tauri::command]
+pub fn resume_screenshot_hotkey(state: State<AppState>) -> Cmd<()> {
+    state
+        .screenshot_service
+        .set_hotkey(state.settings().screenshot_hotkey)
+        .map_err(err)
+}
+#[tauri::command]
 pub fn get_tracking_status(state: State<AppState>) -> TrackingStatus {
     state.tracker.status()
+}
+
+#[tauri::command]
+pub fn list_game_screenshots(state: State<AppState>, game_id: i64) -> Cmd<Vec<GameScreenshot>> {
+    state.db.screenshots(game_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn delete_game_screenshot(state: State<AppState>, id: i64) -> Cmd<()> {
+    if let Some(path) = state.db.remove_screenshot(id).map_err(err)? {
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(err(e)),
+        }
+    } else {
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn open_screenshot_directory(state: State<AppState>, game_id: i64) -> Cmd<()> {
+    // Confirm the game exists before creating anything under its screenshot root.
+    state.db.get_game(game_id).map_err(err)?;
+    let directory = state.screenshots.join(game_id.to_string());
+    std::fs::create_dir_all(&directory).map_err(err)?;
+    let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+    let target: Vec<u16> = directory
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        core::PCWSTR,
+    };
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(operation.as_ptr()),
+            PCWSTR(target.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize <= 32 {
+        Err("スクリーンショットの保存先を開けませんでした".into())
+    } else {
+        Ok(())
+    }
 }

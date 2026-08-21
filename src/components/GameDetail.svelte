@@ -16,6 +16,7 @@
     BackgroundInterval,
     GameDetail,
     GameTimestamp,
+    GameScreenshot,
     PlayStatus,
     Session,
   } from '../lib/types';
@@ -25,6 +26,8 @@
   let game: GameDetail | null = null,
     sessions: Session[] = [],
     timestamps: GameTimestamp[] = [],
+    screenshots: GameScreenshot[] = [],
+    selectedScreenshot: GameScreenshot | null = null,
     selected: Session | null = null,
     intervals: BackgroundInterval[] = [],
     error = '',
@@ -60,14 +63,16 @@
         : 'ゲームとすべての履歴を削除します。元に戻せません。';
   async function load() {
     try {
-      const [nextGame, nextSessions, nextTimestamps] = await Promise.all([
+      const [nextGame, nextSessions, nextTimestamps, nextScreenshots] = await Promise.all([
         api.getGame(gameId),
         api.sessions(gameId),
         api.timestamps(gameId),
+        api.screenshots(gameId),
       ]);
       game = nextGame;
       sessions = nextSessions;
       timestamps = nextTimestamps;
+      screenshots = nextScreenshots;
       if (selected) {
         selected = nextSessions.find((session) => session.id === selected?.id) ?? null;
         if (selected && !sessionFormDirty) {
@@ -87,12 +92,25 @@
       if (selected) api.intervals(selected.id).then((value) => (intervals = value));
     };
     listen('tracking-status', refreshIntervals).then((fn) => (unlisten = fn));
+    let unlistenScreenshot = () => {};
+    listen<number>('screenshot-captured', (event) => {
+      if (event.payload === gameId) {
+        load();
+        showToast('スクリーンショットを保存しました');
+      }
+    }).then((fn) => (unlistenScreenshot = fn));
+    let unlistenScreenshotError = () => {};
+    listen<string>('screenshot-error', (event) => showToast(event.payload, true)).then(
+      (fn) => (unlistenScreenshotError = fn),
+    );
     const timer = setInterval(() => {
       nowMs = Date.now();
       load();
     }, 1000);
     return () => {
       unlisten();
+      unlistenScreenshot();
+      unlistenScreenshotError();
       clearInterval(timer);
       if (toastTimer) clearTimeout(toastTimer);
     };
@@ -293,6 +311,23 @@
       showToast(`削除できませんでした: ${String(e)}`, true);
     }
   }
+  async function deleteScreenshot(id: number) {
+    try {
+      await api.deleteScreenshot(id);
+      if (selectedScreenshot?.id === id) selectedScreenshot = null;
+      await load();
+      showToast('スクリーンショットを削除しました');
+    } catch (e) {
+      showToast(`スクリーンショットを削除できませんでした: ${String(e)}`, true);
+    }
+  }
+  async function openScreenshotDirectory() {
+    try {
+      await api.openScreenshotDirectory(gameId);
+    } catch (e) {
+      showToast(`保存先を開けませんでした: ${String(e)}`, true);
+    }
+  }
 </script>
 
 <button class="back-button" onclick={onback}>← ライブラリに戻る</button
@@ -381,6 +416,38 @@
             </dd>
           </div>
         </dl>{/if}
+    </section>
+    <section class="panel screenshot-panel">
+      <div class="panel-heading">
+        <h2>スクリーンショット</h2>
+        <div class="screenshot-heading-actions">
+          <small>{screenshots.length}枚</small>
+          <button onclick={openScreenshotDirectory}>保存先を開く</button>
+        </div>
+      </div>
+      {#if screenshots.length}
+        <div class="screenshot-grid">
+          {#each screenshots as shot}
+            <article class="screenshot-card">
+              <button class="screenshot-preview" onclick={() => (selectedScreenshot = shot)}>
+                <img
+                  src={imageSrc(shot.path)}
+                  alt={`${local(shot.captured_at)}のスクリーンショット`}
+                />
+              </button>
+              <div>
+                <small>{local(shot.captured_at)}</small>
+                <button
+                  aria-label="スクリーンショットを削除"
+                  onclick={() => deleteScreenshot(shot.id)}>削除</button
+                >
+              </div>
+            </article>
+          {/each}
+        </div>
+      {:else}
+        <p class="hint">計測中のゲームがフォアグラウンドにあるとき、設定したキーで撮影できます。</p>
+      {/if}
     </section>
     <section class="panel timestamp-panel">
       <div class="panel-heading"><h2>プレイ記録ポイント</h2></div>
@@ -532,6 +599,26 @@
         </p>{/if}
     </section>
   </div>{/if}{#if error && !selected}<p class="error">{error}</p>{/if}
+{#if selectedScreenshot}<div
+    class="modal screenshot-modal"
+    role="presentation"
+    onclick={() => (selectedScreenshot = null)}
+  >
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <section class="screenshot-viewer" onclick={(event) => event.stopPropagation()}>
+      <button class="close" aria-label="閉じる" onclick={() => (selectedScreenshot = null)}
+        >×</button
+      >
+      <img src={imageSrc(selectedScreenshot.path)} alt="スクリーンショット拡大表示" />
+      <footer>
+        <span
+          >{local(selectedScreenshot.captured_at)} ・ {selectedScreenshot.width}×{selectedScreenshot.height}</span
+        >
+        <button class="danger" onclick={() => deleteScreenshot(selectedScreenshot!.id)}>削除</button
+        >
+      </footer>
+    </section>
+  </div>{/if}
 {#if confirmAction}<div class="modal confirm-modal">
     <div
       class="panel confirm-box"

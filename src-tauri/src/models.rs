@@ -82,6 +82,7 @@ pub struct AppSettings {
     pub reconciliation_seconds: u64,
     pub close_to_tray: bool,
     pub theme: String,
+    pub screenshot_hotkey: String,
 }
 impl Default for AppSettings {
     fn default() -> Self {
@@ -90,8 +91,19 @@ impl Default for AppSettings {
             reconciliation_seconds: 3,
             close_to_tray: true,
             theme: "dark".into(),
+            screenshot_hotkey: String::new(),
         }
     }
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct GameScreenshot {
+    pub id: i64,
+    pub game_id: i64,
+    pub play_session_id: Option<i64>,
+    pub path: String,
+    pub captured_at: String,
+    pub width: i64,
+    pub height: i64,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackingGameStatus {

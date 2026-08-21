@@ -56,6 +56,15 @@ export interface GameTimestamp {
   playtime_seconds: number;
   since_previous_seconds: number;
 }
+export interface GameScreenshot {
+  id: number;
+  game_id: number;
+  play_session_id: number | null;
+  path: string;
+  captured_at: string;
+  width: number;
+  height: number;
+}
 export interface Metadata {
   erogamescape_id: number;
   title: string;
@@ -70,6 +79,7 @@ export interface Settings {
   reconciliation_seconds: number;
   close_to_tray: boolean;
   theme: Theme;
+  screenshot_hotkey: string;
 }
 export interface TrackingStatus {
   games: Array<{

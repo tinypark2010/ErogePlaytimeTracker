@@ -2,6 +2,7 @@ mod commands;
 mod database;
 mod metadata;
 mod models;
+mod screenshot;
 mod thumbnail;
 mod tracking;
 use crate::{database::Database, models::AppSettings, tracking::TrackingService};
@@ -19,6 +20,8 @@ pub struct AppState {
     db: Database,
     tracker: TrackingService,
     thumbnails: PathBuf,
+    screenshots: PathBuf,
+    screenshot_service: screenshot::ScreenshotService,
     http: reqwest::Client,
     quitting: AtomicBool,
 }
@@ -52,6 +55,8 @@ pub fn run() {
             std::fs::create_dir_all(&root)?;
             let thumbs = root.join("thumbnails");
             std::fs::create_dir_all(&thumbs)?;
+            let screenshots = root.join("screenshots");
+            std::fs::create_dir_all(&screenshots)?;
             let db = Database::open(&root.join("app.db"))?;
             let last = db
                 .get_setting("last_seen")?
@@ -73,6 +78,13 @@ pub fn run() {
                 db.clone(),
                 app.handle().clone(),
                 settings.reconciliation_seconds,
+            );
+            let screenshot_service = screenshot::ScreenshotService::start(
+                app.handle().clone(),
+                db.clone(),
+                tracker.clone(),
+                screenshots.clone(),
+                settings.screenshot_hotkey.clone(),
             );
             let show = MenuItemBuilder::with_id("show", "メインウィンドウを開く").build(app)?;
             let status = MenuItemBuilder::with_id("status", "追跡状態: 待機中")
@@ -107,6 +119,8 @@ pub fn run() {
                 db,
                 tracker,
                 thumbnails: thumbs,
+                screenshots,
+                screenshot_service,
                 http: reqwest::Client::new(),
                 quitting: AtomicBool::new(false),
             });
@@ -150,7 +164,13 @@ pub fn run() {
             commands::refresh_game_metadata,
             commands::get_settings,
             commands::update_settings,
-            commands::get_tracking_status
+            commands::validate_screenshot_hotkey,
+            commands::suspend_screenshot_hotkey,
+            commands::resume_screenshot_hotkey,
+            commands::get_tracking_status,
+            commands::list_game_screenshots,
+            commands::delete_game_screenshot,
+            commands::open_screenshot_directory
         ])
         .run(tauri::generate_context!())
         .expect("Tauri application failed");

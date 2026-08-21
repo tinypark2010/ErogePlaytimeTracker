@@ -354,6 +354,25 @@ impl TrackingService {
                 .collect(),
         }
     }
+    pub fn focused_game(&self) -> Option<(i64, i64)> {
+        let foreground_pid = platform::foreground_pid()?;
+        let observed_game = self
+            .inner
+            .known_pid_games
+            .lock()
+            .get(&foreground_pid)
+            .map(|known| known.0)?;
+        let state = self.inner.state.lock();
+        let game = state.focused()?;
+        if observed_game != game {
+            return None;
+        }
+        state
+            .running()
+            .get(&game)
+            .copied()
+            .map(|session| (game, session))
+    }
     pub fn shutdown(&self) {
         self.inner.stop.store(true, Ordering::Relaxed);
         let at = Utc::now().to_rfc3339();

@@ -8,18 +8,29 @@
       reconciliation_seconds: 3,
       close_to_tray: true,
       theme: 'dark',
+      screenshot_hotkey: '',
     },
     message = '',
-    error = '';
-  onMount(() =>
-    api
-      .settings()
-      .then((v) => {
-        settings = v;
-        ontheme(v.theme);
-      })
-      .catch((e) => (error = String(e))),
-  );
+    error = '',
+    hotkeyError = '',
+    recordingHotkey = false,
+    checkingHotkey = false,
+    hotkeyStatus = '';
+  onMount(async () => {
+    try {
+      settings = await api.settings();
+      ontheme(settings.theme);
+      if (settings.screenshot_hotkey) {
+        try {
+          await api.validateScreenshotHotkey(settings.screenshot_hotkey);
+        } catch (e) {
+          hotkeyError = String(e);
+        }
+      }
+    } catch (e) {
+      error = String(e);
+    }
+  });
   function previewTheme() {
     ontheme(settings.theme);
   }
@@ -28,11 +39,80 @@
       await api.updateSettings(settings);
       message = '保存しました';
       error = '';
+      hotkeyError = '';
     } catch (e) {
-      error = String(e);
+      const saveError = String(e);
+      if (saveError.includes('キー') || saveError.includes('ホット')) {
+        hotkeyError = saveError;
+      } else {
+        error = saveError;
+      }
     }
   }
+  function hotkeyFromEvent(event: KeyboardEvent) {
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(event.key)) return '';
+    const modifiers = [
+      event.ctrlKey ? 'Ctrl' : '',
+      event.altKey ? 'Alt' : '',
+      event.shiftKey ? 'Shift' : '',
+      event.metaKey ? 'Win' : '',
+    ].filter(Boolean);
+    let key = event.key;
+    if (key.length === 1) key = key.toUpperCase();
+    if (key === 'PrintScreen') key = 'PrintScreen';
+    return [...modifiers, key].join('+');
+  }
+  async function recordHotkey(event: KeyboardEvent) {
+    if (!recordingHotkey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      recordingHotkey = false;
+      hotkeyStatus = '';
+      await api.resumeScreenshotHotkey();
+      return;
+    }
+    const candidate = hotkeyFromEvent(event);
+    if (!candidate) return;
+    checkingHotkey = true;
+    error = '';
+    hotkeyError = '';
+    hotkeyStatus = `${candidate} を確認中…`;
+    try {
+      await api.validateScreenshotHotkey(candidate);
+      settings.screenshot_hotkey = candidate;
+      recordingHotkey = false;
+      hotkeyStatus = '';
+    } catch (e) {
+      hotkeyStatus = '';
+      hotkeyError = String(e);
+    } finally {
+      await api.resumeScreenshotHotkey().catch((e) => (hotkeyError = String(e)));
+      checkingHotkey = false;
+    }
+  }
+  async function startHotkeyRecording() {
+    hotkeyStatus = '';
+    error = '';
+    hotkeyError = '';
+    try {
+      await api.suspendScreenshotHotkey();
+      recordingHotkey = true;
+    } catch (e) {
+      hotkeyError = String(e);
+    }
+  }
+  async function clearHotkey() {
+    if (recordingHotkey) await api.resumeScreenshotHotkey();
+    settings.screenshot_hotkey = '';
+    recordingHotkey = false;
+    hotkeyStatus = '';
+    error = '';
+    hotkeyError = '';
+  }
 </script>
+
+<svelte:window onkeydown={recordHotkey} />
 
 <section class="panel form">
   <h1>設定</h1>
@@ -59,7 +139,32 @@
       max="30"
       bind:value={settings.reconciliation_seconds}
     /></label
-  ><button class="primary" onclick={save}>保存</button>{#if message}<p>
+  >
+  <div class="hotkey-setting">
+    <span class="setting-label">スクリーンショットキー</span>
+    <div
+      class:recording={recordingHotkey}
+      class:invalid={Boolean(hotkeyError)}
+      class="hotkey-recorder"
+    >
+      <kbd
+        >{recordingHotkey
+          ? '設定したいキーを押してください…'
+          : settings.screenshot_hotkey || '未設定'}</kbd
+      >
+      <button type="button" disabled={checkingHotkey} onclick={startHotkeyRecording}>
+        {settings.screenshot_hotkey ? '変更' : 'キーを設定'}
+      </button>
+      {#if settings.screenshot_hotkey}<button type="button" onclick={clearHotkey}>解除</button>{/if}
+    </div>
+    <p class="hint">
+      記録中は任意のキーまたはキーの組み合わせを押してください。Escでキャンセルします。
+    </p>
+    {#if hotkeyStatus}<p class="hotkey-status">{hotkeyStatus}</p>{/if}
+    {#if hotkeyError}<p class="error">{hotkeyError}</p>{/if}
+  </div>
+  <button class="primary" disabled={recordingHotkey || checkingHotkey} onclick={save}>保存</button
+  >{#if message}<p>
       {message}
     </p>{/if}{#if error}<p class="error">{error}</p>{/if}
 </section>

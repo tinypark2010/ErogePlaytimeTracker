@@ -4,6 +4,7 @@ import type {
   GameDetail,
   GameSummary,
   GameTimestamp,
+  GameScreenshot,
   Metadata,
   Session,
   Settings,
@@ -67,9 +68,17 @@ export const api = {
   createTimestamp: (gameId: number, name: string) =>
     invoke<number>('create_game_timestamp', { gameId, name }),
   deleteTimestamp: (id: number) => invoke<void>('delete_game_timestamp', { id }),
+  screenshots: (gameId: number) => invoke<GameScreenshot[]>('list_game_screenshots', { gameId }),
+  deleteScreenshot: (id: number) => invoke<void>('delete_game_screenshot', { id }),
+  openScreenshotDirectory: (gameId: number) =>
+    invoke<void>('open_screenshot_directory', { gameId }),
   fetchMetadata: (value: string) => invoke<Metadata>('fetch_erogamescape_metadata', { value }),
   refreshMetadata: (gameId: number) => invoke<void>('refresh_game_metadata', { gameId }),
   settings: () => invoke<Settings>('get_settings'),
   updateSettings: (settings: Settings) => invoke<void>('update_settings', { settings }),
+  validateScreenshotHotkey: (hotkey: string) =>
+    invoke<void>('validate_screenshot_hotkey', { hotkey }),
+  suspendScreenshotHotkey: () => invoke<void>('suspend_screenshot_hotkey'),
+  resumeScreenshotHotkey: () => invoke<void>('resume_screenshot_hotkey'),
   status: () => invoke<TrackingStatus>('get_tracking_status'),
 };

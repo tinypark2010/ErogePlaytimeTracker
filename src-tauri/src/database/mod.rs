@@ -46,6 +46,18 @@ CREATE INDEX idx_background_interval_session_time
     ON background_intervals(play_session_id,started_at);
 ALTER TABLE play_sessions ADD COLUMN background_migrated INTEGER NOT NULL DEFAULT 0;
 "#;
+const MIGRATION_5: &str = r#"
+CREATE TABLE game_screenshots(
+    id INTEGER PRIMARY KEY,
+    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    play_session_id INTEGER REFERENCES play_sessions(id) ON DELETE SET NULL,
+    path TEXT NOT NULL UNIQUE,
+    captured_at TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL
+);
+CREATE INDEX idx_game_screenshots_game_time ON game_screenshots(game_id,captured_at);
+"#;
 
 impl Database {
     pub fn open(path: &Path) -> Result<Self> {
@@ -104,6 +116,15 @@ impl Database {
         if !done {
             tx.execute_batch(MIGRATION_4)?;
             tx.execute("INSERT INTO schema_migrations VALUES(4,?)", [now()])?;
+        }
+        let done: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=5)",
+            [],
+            |r| r.get(0),
+        )?;
+        if !done {
+            tx.execute_batch(MIGRATION_5)?;
+            tx.execute("INSERT INTO schema_migrations VALUES(5,?)", [now()])?;
         }
         tx.commit()?;
         Ok(())
@@ -596,6 +617,52 @@ impl Database {
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
         self.0.lock().execute("INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![key,value,now()])?;
         Ok(())
+    }
+    pub fn add_screenshot(
+        &self,
+        game_id: i64,
+        session_id: Option<i64>,
+        path: &str,
+        captured_at: &str,
+        width: i64,
+        height: i64,
+    ) -> Result<i64> {
+        let c = self.0.lock();
+        c.execute(
+            "INSERT INTO game_screenshots(game_id,play_session_id,path,captured_at,width,height) VALUES(?,?,?,?,?,?)",
+            params![game_id, session_id, path, captured_at, width, height],
+        )?;
+        Ok(c.last_insert_rowid())
+    }
+    pub fn screenshots(&self, game_id: i64) -> Result<Vec<GameScreenshot>> {
+        let c = self.0.lock();
+        let mut q = c.prepare("SELECT id,game_id,play_session_id,path,captured_at,width,height FROM game_screenshots WHERE game_id=? ORDER BY captured_at DESC,id DESC")?;
+        Ok(q.query_map([game_id], |r| {
+            Ok(GameScreenshot {
+                id: r.get(0)?,
+                game_id: r.get(1)?,
+                play_session_id: r.get(2)?,
+                path: r.get(3)?,
+                captured_at: r.get(4)?,
+                width: r.get(5)?,
+                height: r.get(6)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+    pub fn remove_screenshot(&self, id: i64) -> Result<Option<String>> {
+        let mut c = self.0.lock();
+        let tx = c.transaction()?;
+        let path = tx
+            .query_row("SELECT path FROM game_screenshots WHERE id=?", [id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        if path.is_some() {
+            tx.execute("DELETE FROM game_screenshots WHERE id=?", [id])?;
+        }
+        tx.commit()?;
+        Ok(path)
     }
     pub fn metadata_identity(&self, id: i64) -> Result<(Option<i64>, Option<String>)> {
         Ok(self.0.lock().query_row(
