@@ -21,6 +21,7 @@ pub struct AppState {
     tracker: TrackingService,
     thumbnails: PathBuf,
     screenshots: PathBuf,
+    social_images: PathBuf,
     screenshot_service: screenshot::ScreenshotService,
     http: reqwest::Client,
     quitting: AtomicBool,
@@ -57,6 +58,8 @@ pub fn run() {
             std::fs::create_dir_all(&thumbs)?;
             let screenshots = root.join("screenshots");
             std::fs::create_dir_all(&screenshots)?;
+            let social_images = root.join("social-images");
+            std::fs::create_dir_all(&social_images)?;
             let db = Database::open(&root.join("app.db"))?;
             let last = db
                 .get_setting("last_seen")?
@@ -120,6 +123,7 @@ pub fn run() {
                 tracker,
                 thumbnails: thumbs,
                 screenshots,
+                social_images,
                 screenshot_service,
                 http: reqwest::Client::new(),
                 quitting: AtomicBool::new(false),
@@ -170,7 +174,9 @@ pub fn run() {
             commands::get_tracking_status,
             commands::list_game_screenshots,
             commands::delete_game_screenshot,
-            commands::open_screenshot_directory
+            commands::open_screenshot_directory,
+            commands::save_social_image,
+            commands::open_social_image_directory
         ])
         .run(tauri::generate_context!())
         .expect("Tauri application failed");

@@ -72,6 +72,10 @@ export const api = {
   deleteScreenshot: (id: number) => invoke<void>('delete_game_screenshot', { id }),
   openScreenshotDirectory: (gameId: number) =>
     invoke<void>('open_screenshot_directory', { gameId }),
+  saveSocialImage: (gameId: number, pngBase64: string) =>
+    invoke<string>('save_social_image', { gameId, pngBase64 }),
+  openSocialImageDirectory: (gameId: number) =>
+    invoke<void>('open_social_image_directory', { gameId }),
   fetchMetadata: (value: string) => invoke<Metadata>('fetch_erogamescape_metadata', { value }),
   refreshMetadata: (gameId: number) => invoke<void>('refresh_game_metadata', { gameId }),
   settings: () => invoke<Settings>('get_settings'),

@@ -103,6 +103,10 @@ pub fn delete_game(state: State<AppState>, id: i64) -> Cmd<()> {
     if directory.exists() {
         std::fs::remove_dir_all(directory).map_err(err)?;
     }
+    let social_directory = state.social_images.join(id.to_string());
+    if social_directory.exists() {
+        std::fs::remove_dir_all(social_directory).map_err(err)?;
+    }
     Ok(())
 }
 #[tauri::command]
@@ -350,6 +354,64 @@ pub fn open_screenshot_directory(state: State<AppState>, game_id: i64) -> Cmd<()
     };
     if result.0 as isize <= 32 {
         Err("スクリーンショットの保存先を開けませんでした".into())
+    } else {
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn save_social_image(state: State<AppState>, game_id: i64, png_base64: String) -> Cmd<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    state.db.get_game(game_id).map_err(err)?;
+    let bytes = STANDARD.decode(png_base64).map_err(err)?;
+    if bytes.len() > 20 * 1024 * 1024 {
+        return Err("生成画像のサイズが大きすぎます".into());
+    }
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("生成画像がPNG形式ではありません".into());
+    }
+    let directory = state.social_images.join(game_id.to_string());
+    std::fs::create_dir_all(&directory).map_err(err)?;
+    let path = directory.join(format!(
+        "sns-{}.png",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S-%3f")
+    ));
+    std::fs::write(&path, bytes).map_err(err)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn open_social_image_directory(state: State<AppState>, game_id: i64) -> Cmd<()> {
+    state.db.get_game(game_id).map_err(err)?;
+    let directory = state.social_images.join(game_id.to_string());
+    std::fs::create_dir_all(&directory).map_err(err)?;
+    open_directory(&directory)
+}
+
+fn open_directory(directory: &std::path::Path) -> Cmd<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::{
+        Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+        core::PCWSTR,
+    };
+    let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+    let target: Vec<u16> = directory
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(operation.as_ptr()),
+            PCWSTR(target.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize <= 32 {
+        Err("保存先を開けませんでした".into())
     } else {
         Ok(())
     }

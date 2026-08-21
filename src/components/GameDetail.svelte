@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
   import { api } from '../lib/api';
@@ -21,6 +21,9 @@
     Session,
   } from '../lib/types';
   type ConfirmAction = 'session' | 'all-sessions' | 'game';
+  type SocialStyle = 'midnight' | 'rose' | 'ocean';
+  type SocialLayout = 'auto' | 'left' | 'right' | 'top' | 'bottom';
+  type TimestampTimeMode = 'total' | 'difference';
   export let gameId: number;
   export let onback: () => void;
   let game: GameDetail | null = null,
@@ -48,6 +51,28 @@
     sessionStart = '',
     sessionEnd = '',
     sessionFormDirty = false;
+  let socialOpen = false,
+    socialCanvas: HTMLCanvasElement,
+    socialScreenshotId = 0,
+    socialTimestampIds: number[] = [],
+    socialStyle: SocialStyle = 'midnight',
+    socialLayout: SocialLayout = 'auto',
+    socialPanelSize = 26,
+    socialMargin = 16,
+    socialGap = 16,
+    socialTimestampTimeMode: TimestampTimeMode = 'total',
+    socialSaving = false,
+    socialRenderToken = 0;
+  let socialFields = {
+    title: true,
+    brand: true,
+    playtime: true,
+    playStatus: true,
+    sessionCount: false,
+    lastPlayed: false,
+    timestamp: false,
+    capturedAt: false,
+  };
   let confirmAction: ConfirmAction | null = null;
   const pageSizeOptions = [10, 25, 50];
   let screenshotPage = 1,
@@ -64,6 +89,23 @@
     (sessionPage - 1) * sessionPageSize,
     sessionPage * sessionPageSize,
   );
+  $: socialRenderKey = JSON.stringify({
+    socialOpen,
+    socialScreenshotId,
+    socialTimestampIds,
+    socialStyle,
+    socialLayout,
+    socialPanelSize,
+    socialMargin,
+    socialGap,
+    socialTimestampTimeMode,
+    socialFields,
+    game,
+  });
+  $: if (socialOpen && socialCanvas) {
+    socialRenderKey;
+    renderSocialPreview();
+  }
   const confirmTitle = () =>
     confirmAction === 'session'
       ? 'セッションの削除'
@@ -352,6 +394,328 @@
       showToast(`保存先を開けませんでした: ${String(e)}`, true);
     }
   }
+  async function openSocialCreator(screenshotId?: number) {
+    socialScreenshotId = screenshotId ?? screenshots[0]?.id ?? 0;
+    socialTimestampIds = timestamps.map((point) => point.id);
+    socialOpen = true;
+    await tick();
+    renderSocialPreview();
+  }
+  function resetSocialLayout() {
+    socialLayout = 'auto';
+    socialPanelSize = 26;
+    socialMargin = 16;
+    socialGap = 16;
+  }
+  function toggleSocialTimestamp(id: number, selected: boolean) {
+    socialTimestampIds = selected
+      ? [...socialTimestampIds, id].filter(
+          (value, index, values) => values.indexOf(value) === index,
+        )
+      : socialTimestampIds.filter((value) => value !== id);
+  }
+  function setSocialTimestampEnabled(enabled: boolean) {
+    socialFields.timestamp = enabled;
+    if (enabled) socialTimestampIds = timestamps.map((point) => point.id);
+  }
+  function canvasImage(path: string) {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('スクリーンショットを読み込めませんでした'));
+      image.src = imageSrc(path);
+    });
+  }
+  function fitText(
+    context: CanvasRenderingContext2D,
+    text: string,
+    maxWidth: number,
+    maxSize: number,
+    minSize: number,
+    weight = 700,
+  ) {
+    let size = maxSize;
+    do {
+      context.font = `${weight} ${size}px "Yu Gothic UI", Meiryo, sans-serif`;
+      if (context.measureText(text).width <= maxWidth) return size;
+      size -= 2;
+    } while (size >= minSize);
+    return minSize;
+  }
+  function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
+    const lines: string[] = [];
+    let line = '';
+    for (const character of text) {
+      const candidate = line + character;
+      if (line && context.measureText(candidate).width > maxWidth) {
+        lines.push(line);
+        line = character;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+  async function renderSocialPreview() {
+    const canvas = socialCanvas;
+    const shot = screenshots.find((item) => item.id === socialScreenshotId);
+    if (!canvas || !shot || !game) return;
+    const token = ++socialRenderToken;
+    try {
+      const image = await canvasImage(shot.path);
+      if (token !== socialRenderToken) return;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      const width = canvas.width,
+        height = canvas.height;
+      // Fill otherwise-empty margins with a subdued version of the image,
+      // then place the complete screenshot on top without cropping it.
+      const backgroundScale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+      const backgroundWidth = image.naturalWidth * backgroundScale,
+        backgroundHeight = image.naturalHeight * backgroundScale;
+      context.save();
+      context.filter = 'blur(28px) brightness(0.55)';
+      context.drawImage(
+        image,
+        (width - backgroundWidth) / 2 - 20,
+        (height - backgroundHeight) / 2 - 20,
+        backgroundWidth + 40,
+        backgroundHeight + 40,
+      );
+      context.restore();
+      const palette =
+        socialStyle === 'rose'
+          ? { accent: '#ff82b2', panel: 'rgba(55, 15, 34, .88)', glow: 'rgba(255, 80, 150, .42)' }
+          : socialStyle === 'ocean'
+            ? { accent: '#69c8ff', panel: 'rgba(8, 29, 50, .88)', glow: 'rgba(40, 155, 240, .4)' }
+            : { accent: '#b49aff', panel: 'rgba(18, 14, 29, .9)', glow: 'rgba(121, 87, 213, .42)' };
+      context.fillStyle = 'rgba(5, 5, 9, .42)';
+      context.fillRect(0, 0, width, height);
+      const selectedPoints = timestamps.filter((item) => socialTimestampIds.includes(item.id));
+      const pointText = (point: GameTimestamp) => {
+        const difference = socialTimestampTimeMode === 'difference';
+        const seconds = difference ? point.since_previous_seconds : point.playtime_seconds;
+        return `◆ ${point.name} — ${duration(seconds)}`;
+      };
+      const hasVisibleInfo =
+        socialFields.title ||
+        socialFields.brand ||
+        socialFields.playtime ||
+        socialFields.playStatus ||
+        socialFields.sessionCount ||
+        socialFields.lastPlayed ||
+        socialFields.capturedAt ||
+        (socialFields.timestamp && selectedPoints.length > 0);
+      const imageAspect = image.naturalWidth / image.naturalHeight;
+      const resolvedLayout: Exclude<SocialLayout, 'auto'> =
+        socialLayout === 'auto' ? (imageAspect < 1.55 ? 'left' : 'bottom') : socialLayout;
+      const sideLayout = resolvedLayout === 'left' || resolvedLayout === 'right';
+      const availableWidth = width - socialMargin * 2;
+      const availableHeight = height - socialMargin * 2;
+      const panelWidth = sideLayout
+        ? Math.round((availableWidth - socialGap) * (socialPanelSize / 100))
+        : availableWidth;
+      const panelHeight = sideLayout
+        ? availableHeight
+        : Math.round((availableHeight - socialGap) * (socialPanelSize / 100));
+      const infoArea =
+        resolvedLayout === 'left'
+          ? { x: socialMargin, y: socialMargin, width: panelWidth, height: panelHeight }
+          : resolvedLayout === 'right'
+            ? {
+                x: width - socialMargin - panelWidth,
+                y: socialMargin,
+                width: panelWidth,
+                height: panelHeight,
+              }
+            : resolvedLayout === 'top'
+              ? { x: socialMargin, y: socialMargin, width: panelWidth, height: panelHeight }
+              : {
+                  x: socialMargin,
+                  y: height - socialMargin - panelHeight,
+                  width: panelWidth,
+                  height: panelHeight,
+                };
+      const imageArea = !hasVisibleInfo
+        ? { x: socialMargin, y: socialMargin, width: availableWidth, height: availableHeight }
+        : resolvedLayout === 'left'
+          ? {
+              x: infoArea.x + infoArea.width + socialGap,
+              y: socialMargin,
+              width: availableWidth - infoArea.width - socialGap,
+              height: availableHeight,
+            }
+          : resolvedLayout === 'right'
+            ? {
+                x: socialMargin,
+                y: socialMargin,
+                width: availableWidth - infoArea.width - socialGap,
+                height: availableHeight,
+              }
+            : resolvedLayout === 'top'
+              ? {
+                  x: socialMargin,
+                  y: infoArea.y + infoArea.height + socialGap,
+                  width: availableWidth,
+                  height: availableHeight - infoArea.height - socialGap,
+                }
+              : {
+                  x: socialMargin,
+                  y: socialMargin,
+                  width: availableWidth,
+                  height: availableHeight - infoArea.height - socialGap,
+                };
+      const imageScale = Math.min(
+        imageArea.width / image.naturalWidth,
+        imageArea.height / image.naturalHeight,
+      );
+      const foregroundWidth = image.naturalWidth * imageScale,
+        foregroundHeight = image.naturalHeight * imageScale,
+        foregroundX = imageArea.x + (imageArea.width - foregroundWidth) / 2,
+        foregroundY = imageArea.y + (imageArea.height - foregroundHeight) / 2;
+      context.save();
+      context.shadowColor = 'rgba(0,0,0,.68)';
+      context.shadowBlur = 34;
+      context.fillStyle = '#08070b';
+      context.beginPath();
+      context.roundRect(
+        foregroundX - 5,
+        foregroundY - 5,
+        foregroundWidth + 10,
+        foregroundHeight + 10,
+        18,
+      );
+      context.fill();
+      context.shadowBlur = 0;
+      context.beginPath();
+      context.roundRect(foregroundX, foregroundY, foregroundWidth, foregroundHeight, 14);
+      context.clip();
+      context.drawImage(image, foregroundX, foregroundY, foregroundWidth, foregroundHeight);
+      context.restore();
+      if (hasVisibleInfo) {
+        const boxX = infoArea.x,
+          boxY = infoArea.y,
+          boxWidth = infoArea.width,
+          boxHeight = infoArea.height;
+        context.shadowColor = palette.glow;
+        context.shadowBlur = 32;
+        context.fillStyle = palette.panel;
+        context.beginPath();
+        context.roundRect(boxX, boxY, boxWidth, boxHeight, 24);
+        context.fill();
+        context.shadowBlur = 0;
+        context.fillStyle = palette.accent;
+        context.fillRect(boxX, boxY, 9, boxHeight);
+        context.save();
+        context.beginPath();
+        context.roundRect(boxX, boxY, boxWidth, boxHeight, 24);
+        context.clip();
+        let textY = boxY + (sideLayout ? 72 : 50);
+        if (socialFields.title) {
+          const titleSize = fitText(
+            context,
+            game.title,
+            boxWidth - 82,
+            sideLayout ? 46 : 42,
+            sideLayout ? 24 : 25,
+            800,
+          );
+          context.font = `800 ${titleSize}px "Yu Gothic UI", Meiryo, sans-serif`;
+          context.fillStyle = '#fff';
+          context.fillText(game.title, boxX + 42, textY);
+          textY += titleSize + (sideLayout ? 36 : 17);
+        }
+        const facts: string[] = [];
+        if (socialFields.brand && game.brand) facts.push(game.brand);
+        if (socialFields.playStatus) facts.push(`プレイ状況: ${playStatusLabel(game.play_status)}`);
+        if (socialFields.playtime)
+          facts.push(`プレイ時間: ${duration(game.total_playtime_seconds)}`);
+        if (socialFields.sessionCount) facts.push(`${game.session_count}セッション`);
+        if (socialFields.lastPlayed && game.last_played)
+          facts.push(`最終プレイ: ${local(game.last_played)}`);
+        context.fillStyle = '#eeeaf5';
+        if (sideLayout) {
+          context.font = '600 27px "Yu Gothic UI", Meiryo, sans-serif';
+          for (const fact of facts) {
+            const factSize = fitText(context, fact, boxWidth - 82, 27, 19, 600);
+            context.font = `600 ${factSize}px "Yu Gothic UI", Meiryo, sans-serif`;
+            context.fillText(fact, boxX + 42, textY);
+            textY += 46;
+          }
+        } else {
+          const factLine = facts.join('  •  ');
+          if (factLine) {
+            const factSize = fitText(context, factLine, boxWidth - 90, 25, 18, 600);
+            context.font = `600 ${factSize}px "Yu Gothic UI", Meiryo, sans-serif`;
+            context.fillText(factLine, boxX + 42, textY);
+            textY += 37;
+          }
+        }
+        if (socialFields.timestamp && selectedPoints.length) {
+          context.fillStyle = palette.accent;
+          const reservedBottom = socialFields.capturedAt ? 55 : 22;
+          const availablePointHeight = Math.max(30, boxY + boxHeight - reservedBottom - textY);
+          let pointSize = sideLayout ? 23 : 21;
+          let wrappedPoints: string[][] = [];
+          while (pointSize >= 16) {
+            context.font = `700 ${pointSize}px "Yu Gothic UI", Meiryo, sans-serif`;
+            wrappedPoints = selectedPoints.map((point) =>
+              wrapCanvasText(context, pointText(point), boxWidth - 84),
+            );
+            const lineCount = wrappedPoints.reduce((total, lines) => total + lines.length, 0);
+            if (lineCount * (pointSize + 6) <= availablePointHeight) break;
+            pointSize -= 1;
+          }
+          pointSize = Math.max(16, pointSize);
+          context.font = `700 ${pointSize}px "Yu Gothic UI", Meiryo, sans-serif`;
+          for (const lines of wrappedPoints) {
+            for (const line of lines) {
+              context.fillText(line, boxX + 42, textY);
+              textY += pointSize + 6;
+            }
+            textY += sideLayout ? 5 : 2;
+          }
+        }
+        if (socialFields.capturedAt) {
+          context.fillStyle = 'rgba(255,255,255,.72)';
+          context.font = '500 22px "Yu Gothic UI", Meiryo, sans-serif';
+          context.textAlign = 'right';
+          context.fillText(
+            `撮影: ${local(shot.captured_at)}`,
+            boxX + boxWidth - 35,
+            boxY + boxHeight - 28,
+          );
+          context.textAlign = 'left';
+        }
+        context.restore();
+      }
+    } catch (e) {
+      showToast(String(e), true);
+    }
+  }
+  async function saveSocialImage() {
+    if (!socialCanvas || socialSaving) return;
+    socialSaving = true;
+    try {
+      await renderSocialPreview();
+      const encoded = socialCanvas.toDataURL('image/png').split(',', 2)[1];
+      await api.saveSocialImage(gameId, encoded);
+      showToast('SNS投稿用画像を保存しました');
+    } catch (e) {
+      showToast(`画像を保存できませんでした: ${String(e)}`, true);
+    } finally {
+      socialSaving = false;
+    }
+  }
+  async function openSocialImageDirectory() {
+    try {
+      await api.openSocialImageDirectory(gameId);
+    } catch (e) {
+      showToast(`保存先を開けませんでした: ${String(e)}`, true);
+    }
+  }
 </script>
 
 <button class="back-button" onclick={onback}>← ライブラリに戻る</button
@@ -383,6 +747,9 @@
         <small>プレイ時間</small>
         <h2>{duration(game.total_playtime_seconds)}</h2>
         <p>{game.session_count} セッション</p>
+        <button class="primary social-create-button" onclick={() => openSocialCreator()}
+          >SNS用プレイ記録画像を作成</button
+        >
       </div>
     </div>
     <section class="panel game-info">
@@ -595,6 +962,186 @@
         </div>{/if}
     </section>
   </section>{/if}
+{#if socialOpen}<div class="modal social-image-modal">
+    <div
+      class="panel social-image-creator"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="social-image-title"
+    >
+      <div class="panel-heading">
+        <div>
+          <h2 id="social-image-title">SNS投稿用画像を作成</h2>
+          <p class="hint">1600×900のPNG画像として保存します。</p>
+        </div>
+        <button class="close" aria-label="閉じる" onclick={() => (socialOpen = false)}>×</button>
+      </div>
+      <div class="social-image-layout">
+        <div class="social-image-controls">
+          <fieldset>
+            <legend>1. スクリーンショット</legend>
+            <div class="social-shot-picker">
+              {#if screenshots.length}
+                {#each screenshots as shot}<button
+                    type="button"
+                    class:selected={socialScreenshotId === shot.id}
+                    aria-pressed={socialScreenshotId === shot.id}
+                    onclick={() => (socialScreenshotId = shot.id)}
+                    ><img src={imageSrc(shot.path)} alt="" /><small>{local(shot.captured_at)}</small
+                    ></button
+                  >{/each}
+              {:else}
+                <div class="social-no-screenshot error">
+                  <strong>スクリーンショットがありません</strong>
+                  <span>計測中のゲームを撮影してから、もう一度画像を作成してください。</span>
+                </div>
+              {/if}
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>2. デザイン</legend>
+            <div class="social-style-options">
+              <label
+                ><input type="radio" bind:group={socialStyle} value="midnight" />ミッドナイト</label
+              >
+              <label><input type="radio" bind:group={socialStyle} value="rose" />ローズ</label>
+              <label><input type="radio" bind:group={socialStyle} value="ocean" />オーシャン</label>
+            </div>
+            <div class="social-layout-controls">
+              <label
+                >情報パネルの位置<select bind:value={socialLayout}
+                  ><option value="auto">自動</option><option value="left">左</option><option
+                    value="right">右</option
+                  ><option value="top">上</option><option value="bottom">下</option></select
+                ></label
+              >
+              <label
+                ><span>情報パネルのサイズ <output>{socialPanelSize}%</output></span><input
+                  type="range"
+                  min="18"
+                  max="45"
+                  step="1"
+                  bind:value={socialPanelSize}
+                /></label
+              ><label
+                ><span>外側の余白 <output>{socialMargin}px</output></span><input
+                  type="range"
+                  min="0"
+                  max="80"
+                  step="4"
+                  bind:value={socialMargin}
+                /></label
+              ><label
+                ><span>画像との間隔 <output>{socialGap}px</output></span><input
+                  type="range"
+                  min="0"
+                  max="80"
+                  step="4"
+                  bind:value={socialGap}
+                /></label
+              >
+              <button type="button" onclick={resetSocialLayout}>レイアウトを初期値に戻す</button>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>3. 画像に載せる情報</legend>
+            <div class="social-field-options">
+              <label
+                ><input type="checkbox" bind:checked={socialFields.title} />ゲームタイトル</label
+              >
+              <label><input type="checkbox" bind:checked={socialFields.brand} />ブランド</label>
+              <label><input type="checkbox" bind:checked={socialFields.playtime} />プレイ時間</label
+              >
+              <label
+                ><input type="checkbox" bind:checked={socialFields.playStatus} />プレイ状況</label
+              >
+              <label
+                ><input
+                  type="checkbox"
+                  bind:checked={socialFields.sessionCount}
+                />セッション数</label
+              >
+              <label
+                ><input
+                  type="checkbox"
+                  bind:checked={socialFields.lastPlayed}
+                />最終プレイ日時</label
+              >
+              <label><input type="checkbox" bind:checked={socialFields.capturedAt} />撮影日時</label
+              >
+              <label
+                ><input
+                  type="checkbox"
+                  checked={socialFields.timestamp}
+                  disabled={!timestamps.length}
+                  onchange={(event) =>
+                    setSocialTimestampEnabled((event.currentTarget as HTMLInputElement).checked)}
+                />プレイ記録ポイント</label
+              >
+            </div>
+            {#if socialFields.timestamp && timestamps.length}<div class="social-timestamp-picker">
+                <label class="social-timestamp-time-mode"
+                  >ポイントの時間<select bind:value={socialTimestampTimeMode}
+                    ><option value="total">ゲーム開始からの累計</option><option value="difference"
+                      >前のポイントからの差分</option
+                    ></select
+                  ></label
+                >
+                <div class="social-timestamp-selection-heading">
+                  <span>掲載する記録（{socialTimestampIds.length}/{timestamps.length}件）</span>
+                  <span class="social-timestamp-actions">
+                    <button
+                      type="button"
+                      onclick={() => (socialTimestampIds = timestamps.map((point) => point.id))}
+                      >すべて選択</button
+                    >
+                    <button type="button" onclick={() => (socialTimestampIds = [])}
+                      >すべて解除</button
+                    >
+                  </span>
+                </div>
+                <div class="social-timestamp-list">
+                  {#each timestamps as point}<label
+                      ><input
+                        type="checkbox"
+                        checked={socialTimestampIds.includes(point.id)}
+                        onchange={(event) =>
+                          toggleSocialTimestamp(
+                            point.id,
+                            (event.currentTarget as HTMLInputElement).checked,
+                          )}
+                      /><span>{point.name}</span><small>{duration(point.playtime_seconds)}</small
+                      ></label
+                    >{/each}
+                </div>
+              </div>{/if}
+          </fieldset>
+          <p class="social-guideline-note">
+            投稿前に作品の画像投稿ガイドライン、ネタバレ、成人向け表現を確認してください。
+          </p>
+        </div>
+        <div class="social-preview-area">
+          {#if screenshots.length}<canvas
+              bind:this={socialCanvas}
+              width="1600"
+              height="900"
+              aria-label="生成画像のプレビュー"
+            ></canvas>{:else}<div class="social-empty-preview">
+              <strong>プレビューできる画像がありません</strong>
+              <span>スクリーンショットを1枚以上撮影すると、ここに生成結果が表示されます。</span>
+            </div>{/if}
+          <div class="social-image-actions">
+            <button onclick={openSocialImageDirectory}>保存先を開く</button>
+            <button
+              class="primary"
+              disabled={socialSaving || !screenshots.length}
+              onclick={saveSocialImage}>{socialSaving ? '保存中…' : 'PNGを保存'}</button
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>{/if}
 {#if selected}<div class="modal">
     <section class="panel editor">
       <button class="close" onclick={() => (selected = null)}>×</button>

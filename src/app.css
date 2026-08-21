@@ -1387,6 +1387,285 @@ button.theme-blue,
 .timestamp-create {
   margin: 1rem 0;
 }
+.social-image-modal {
+  z-index: 25;
+  padding: 1.25rem;
+}
+.social-create-button {
+  margin-top: 0.45rem;
+  white-space: nowrap;
+}
+.social-image-creator {
+  width: min(1500px, 96vw);
+  max-height: 94vh;
+  margin: 0;
+  overflow: auto;
+}
+.social-image-creator > .panel-heading {
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+.social-image-creator > .panel-heading h2,
+.social-image-creator > .panel-heading p {
+  margin: 0;
+}
+.social-image-creator > .panel-heading p {
+  margin-top: 0.25rem;
+}
+.social-image-layout {
+  display: grid;
+  grid-template-columns: minmax(330px, 420px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+.social-image-controls {
+  display: grid;
+  gap: 0.9rem;
+}
+.social-image-controls fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid #ffffff1f;
+  border-radius: 8px;
+}
+.social-image-controls legend {
+  padding: 0 0.35rem;
+  font-weight: 700;
+}
+.social-shot-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  max-height: 230px;
+  overflow: auto;
+}
+.social-no-screenshot {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.8rem;
+  border: 1px solid #e05d6f66;
+  border-radius: 7px;
+  background: #e05d6f12;
+  line-height: 1.45;
+}
+.social-no-screenshot span {
+  color: #aaa3b4;
+}
+.social-shot-picker button {
+  min-width: 0;
+  padding: 3px;
+  overflow: hidden;
+}
+.social-shot-picker button.selected {
+  border-color: #a88aff;
+  box-shadow: 0 0 0 2px #a88aff35;
+}
+.social-shot-picker img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.social-shot-picker small {
+  display: block;
+  padding: 0.25rem 0.1rem 0.1rem;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.social-style-options,
+.social-field-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.8rem;
+}
+.social-layout-controls {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #ffffff1a;
+}
+.social-layout-controls label {
+  display: grid;
+  gap: 0.3rem;
+}
+.social-layout-controls label > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.social-layout-controls output {
+  color: #aaa3b4;
+  font-variant-numeric: tabular-nums;
+}
+.social-layout-controls input[type='range'] {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+.social-layout-controls button {
+  justify-self: start;
+}
+.social-style-options label,
+.social-field-options label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.social-style-options input,
+.social-field-options input {
+  width: auto;
+  margin: 0;
+}
+.social-timestamp-picker {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+.social-timestamp-selection-heading,
+.social-timestamp-actions,
+.social-timestamp-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.social-timestamp-time-mode {
+  display: grid;
+  gap: 0.3rem;
+}
+.social-timestamp-selection-heading {
+  justify-content: space-between;
+}
+.social-timestamp-actions button {
+  padding: 0.3rem 0.5rem;
+  font-size: 12px;
+}
+.social-timestamp-list {
+  display: grid;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid #ffffff18;
+  border-radius: 6px;
+}
+.social-timestamp-list label {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid #ffffff12;
+}
+.social-timestamp-list label:last-child {
+  border-bottom: 0;
+}
+.social-timestamp-list input {
+  width: auto;
+  margin: 0;
+}
+.social-timestamp-list span {
+  flex: 1;
+  min-width: 0;
+}
+:root[data-theme]:not([data-theme='dark']) .social-timestamp-list {
+  border-color: #0002;
+}
+:root[data-theme]:not([data-theme='dark']) .social-timestamp-list label {
+  border-color: #00000012;
+}
+.social-guideline-note {
+  margin: 0;
+  padding: 0.75rem;
+  border-left: 3px solid #c69b42;
+  background: #c69b4214;
+  color: #d9c497;
+  line-height: 1.55;
+}
+.social-preview-area {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+.social-preview-area canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #ffffff20;
+  border-radius: 10px;
+  background: #09080c;
+  box-shadow: 0 12px 40px #0007;
+}
+.social-empty-preview {
+  display: grid;
+  place-content: center;
+  gap: 0.5rem;
+  min-height: 420px;
+  padding: 2rem;
+  border: 1px dashed #ffffff35;
+  border-radius: 10px;
+  background: #09080c;
+  color: #aaa3b4;
+  text-align: center;
+}
+.social-empty-preview strong {
+  color: #e9e7ef;
+  font-size: 18px;
+}
+.social-image-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+:root[data-theme]:not([data-theme='dark']) .social-image-controls fieldset,
+:root[data-theme]:not([data-theme='dark']) .social-preview-area canvas,
+:root[data-theme]:not([data-theme='dark']) .social-empty-preview {
+  border-color: #0002;
+}
+:root[data-theme]:not([data-theme='dark']) .social-empty-preview {
+  background: #f7f6fa;
+  color: #706978;
+}
+:root[data-theme]:not([data-theme='dark']) .social-empty-preview strong {
+  color: #292633;
+}
+:root[data-theme]:not([data-theme='dark']) .social-no-screenshot span {
+  color: #706978;
+}
+:root .detail .hero .detail-image {
+  background: transparent;
+}
+:root[data-theme]:not([data-theme='dark']) .social-layout-controls {
+  border-color: #0002;
+}
+:root[data-theme]:not([data-theme='dark']) .social-layout-controls output {
+  color: #706978;
+}
+:root[data-theme]:not([data-theme='dark']) .social-guideline-note {
+  color: #765813;
+  background: #f8eac7;
+}
+@media (max-width: 1000px) {
+  .social-image-layout {
+    grid-template-columns: 1fr;
+  }
+  .social-preview-area {
+    position: static;
+    grid-row: 1;
+  }
+}
+@media (max-width: 600px) {
+  .social-image-modal {
+    padding: 0.5rem;
+  }
+  .social-image-creator {
+    width: 99vw;
+  }
+  .social-style-options,
+  .social-field-options {
+    grid-template-columns: 1fr;
+  }
+}
 .screenshot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
