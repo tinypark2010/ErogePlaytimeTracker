@@ -467,7 +467,6 @@
       <button class="close" onclick={() => (selected = null)}>×</button>
       <h2>Session #{selected.id}</h2>
       <div class="session-breakdown">
-        <span><small>プレイ時間</small><strong>{duration(selected.playtime_seconds)}</strong></span>
         <span
           ><small>起動時間</small><strong
             >{duration(
@@ -476,6 +475,7 @@
             )}</strong
           ></span
         >
+        <span><small>プレイ時間</small><strong>{duration(selected.playtime_seconds)}</strong></span>
         <span><small>除外時間</small><strong>{duration(selected.background_seconds)}</strong></span>
       </div>
       <label

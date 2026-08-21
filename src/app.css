@@ -312,11 +312,33 @@ small {
   display: grid;
   gap: 0.25rem;
   padding: 0.75rem;
+  border: 1px solid #302d38;
   border-radius: 8px;
   background: #111018;
 }
 .session-breakdown small {
   color: #aaa3b4;
+}
+:root[data-theme='light'] .session-breakdown span {
+  background: #f7f6fa;
+  border-color: #d9d5df;
+}
+:root[data-theme='pink'] .session-breakdown span {
+  background: #fff4f8;
+  border-color: #edc9d8;
+}
+:root[data-theme='blue'] .session-breakdown span {
+  background: #f1f7ff;
+  border-color: #c7d9ec;
+}
+:root[data-theme='light'] .session-breakdown small {
+  color: #615b68;
+}
+:root[data-theme='pink'] .session-breakdown small {
+  color: #805368;
+}
+:root[data-theme='blue'] .session-breakdown small {
+  color: #526c85;
 }
 .tracking-status {
   white-space: nowrap;
