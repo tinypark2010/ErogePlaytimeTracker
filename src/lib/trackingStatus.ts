@@ -21,9 +21,7 @@ export function trackingStatusText(group: TrackingStatusGroup): string {
   if (phase === 'foreground')
     return games.length === 1 ? `${title}をプレイ中` : `${games.length}本をプレイ中`;
   if (phase === 'background')
-    return games.length === 1
-      ? `${title}：バックグラウンド`
-      : `バックグラウンド ${games.length}本`;
+    return games.length === 1 ? `${title}：バックグラウンド` : `バックグラウンド ${games.length}本`;
   if (phase === 'starting')
     return games.length === 1 ? `${title}を起動中` : `${games.length}本を起動中`;
   return games.length === 1
