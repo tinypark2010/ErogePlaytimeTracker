@@ -588,6 +588,8 @@ update_settings
 
 Tracking status changes can be pushed to the frontend using Tauri events where appropriate.
 
+Expose tracking status per game with a phase of `starting`, `foreground`, `background`, or `window_transition`. The header may show multiple phase chips at once, ordered foreground, background, starting, then window transition. Show a title for a single game and aggregate multiple games in the same phase by count, retaining their titles in tooltip/detail text.
+
 ---
 
 ## 10. Database notes

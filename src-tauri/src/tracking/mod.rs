@@ -2,7 +2,7 @@ mod platform;
 pub mod state;
 use crate::{
     database::{Database, normalize_path},
-    models::{RunningGameStatus, TrackingStatus},
+    models::{TrackingGameStatus, TrackingStatus},
 };
 use chrono::Utc;
 use parking_lot::Mutex;
@@ -309,12 +309,12 @@ impl TrackingService {
     fn emit(&self) {
         let status = self.status();
         if let Some(tray) = self.inner.app.tray_by_id("tracker") {
-            let label = if status.running_games.is_empty() {
+            let label = if status.games.is_empty() {
                 "Eroge Playtime Tracker - idle".to_string()
             } else {
                 format!(
                     "Eroge Playtime Tracker - tracking {} game(s)",
-                    status.running_games.len()
+                    status.games.len()
                 )
             };
             let _ = tray.set_tooltip(Some(label));
@@ -323,6 +323,7 @@ impl TrackingService {
     }
     pub fn status(&self) -> TrackingStatus {
         let s = self.inner.state.lock();
+        let games_that_had_windows = self.inner.games_that_had_windows.lock();
         let names: HashMap<i64, String> = self
             .inner
             .db
@@ -332,16 +333,25 @@ impl TrackingService {
             .map(|(g, n, _)| (g, n))
             .collect();
         TrackingStatus {
-            running_games: s
+            games: s
                 .running()
                 .iter()
-                .map(|(g, x)| RunningGameStatus {
+                .map(|(g, x)| TrackingGameStatus {
                     game_id: *g,
                     title: names.get(g).cloned().unwrap_or_default(),
                     session_id: *x,
+                    phase: if s.focused() == Some(*g) {
+                        "foreground"
+                    } else if s.background().contains(g) {
+                        "background"
+                    } else if games_that_had_windows.contains(g) {
+                        "window_transition"
+                    } else {
+                        "starting"
+                    }
+                    .to_string(),
                 })
                 .collect(),
-            foreground_game_id: s.focused(),
         }
     }
     pub fn shutdown(&self) {

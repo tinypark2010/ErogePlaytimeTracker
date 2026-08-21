@@ -72,6 +72,10 @@ export interface Settings {
   theme: Theme;
 }
 export interface TrackingStatus {
-  running_games: Array<{ game_id: number; title: string; session_id: number }>;
-  foreground_game_id: number | null;
+  games: Array<{
+    game_id: number;
+    title: string;
+    session_id: number;
+    phase: 'starting' | 'foreground' | 'background' | 'window_transition';
+  }>;
 }

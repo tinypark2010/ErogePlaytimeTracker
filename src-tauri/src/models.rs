@@ -94,13 +94,13 @@ impl Default for AppSettings {
     }
 }
 #[derive(Debug, Clone, Serialize)]
-pub struct RunningGameStatus {
+pub struct TrackingGameStatus {
     pub game_id: i64,
     pub title: String,
     pub session_id: i64,
+    pub phase: String,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackingStatus {
-    pub running_games: Vec<RunningGameStatus>,
-    pub foreground_game_id: Option<i64>,
+    pub games: Vec<TrackingGameStatus>,
 }

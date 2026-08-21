@@ -64,6 +64,8 @@ foregroundは `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` を主な通知経路�
 
 起動直後など、関連processはあるが可視windowがまだない期間はBackgroundとして扱いません。ゲームの可視windowが消えた後も同様で、process終了まで一時的なBackground recordを作らず、最後にwindowが消えた時刻でSessionを閉じます。異常終了後はperiodic `last_seen` より後を加算せず、orphan recordを閉じて `needs_review` にします。
 
+ヘッダーの追跡状況はゲーム単位のphase（起動中、プレイ中、Background、画面切替・終了処理中）から複数チップを同時表示します。同じphaseが複数本ある場合は件数へ集約し、各タイトルはチップのtooltipで確認できます。
+
 ## ErogameScape連携
 
 game IDまたはgame URLからtitle、brand、発売日、package imageを取得します。HTML selectorは `GameMetadataProvider` / `ErogameScapeProvider` 内に隔離されています。thumbnailは一度だけcacheされ、networkやparser failureはtracking loopへ影響しません。サイトへの自動アクセスは明示的な取得・更新操作時だけです。

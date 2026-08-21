@@ -121,6 +121,9 @@ impl TrackerState {
     pub fn focused(&self) -> Option<i64> {
         self.focused
     }
+    pub fn background(&self) -> &HashSet<i64> {
+        &self.background
+    }
 }
 
 #[cfg(test)]
