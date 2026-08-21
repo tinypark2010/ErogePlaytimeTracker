@@ -137,6 +137,8 @@ textarea {
   padding: 0;
   overflow: hidden;
   background: #1b1922;
+  border: 1px solid #302d39;
+  border-radius: 10px;
 }
 .card img,
 .placeholder {
@@ -814,6 +816,9 @@ small {
   background: #fbfdff;
   border-color: #c7d9ec;
 }
+:root[data-theme]:not([data-theme='dark']) .card {
+  box-shadow: 0 2px 8px #30253b12;
+}
 :root[data-theme='light'] button {
   color: #292633;
   background: #ece9f0;
@@ -872,6 +877,18 @@ small {
 :root[data-theme]:not([data-theme='dark']) .detail-image {
   background: #ebe8ef;
   color: #736d79;
+}
+:root[data-theme='light'] .card-image,
+:root[data-theme='light'] .card-image img {
+  background: #f0edf3;
+}
+:root[data-theme='pink'] .card-image,
+:root[data-theme='pink'] .card-image img {
+  background: #f8e3eb;
+}
+:root[data-theme='blue'] .card-image,
+:root[data-theme='blue'] .card-image img {
+  background: #e3effb;
 }
 :root[data-theme]:not([data-theme='dark']) .card-main {
   color: inherit;
