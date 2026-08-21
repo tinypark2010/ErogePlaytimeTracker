@@ -8,13 +8,36 @@
   import { api } from './lib/api';
   import { trackingStatusGroups, trackingStatusText } from './lib/trackingStatus';
   import type { Theme, TrackingStatus } from './lib/types';
-  let page: 'library' | 'game' | 'add' | 'settings' = 'library',
+  type Page = 'library' | 'game' | 'add' | 'settings';
+  let page: Page = 'library',
     gameId = 0,
     refresh = 0,
-    status: TrackingStatus = { games: [] };
+    status: TrackingStatus = { games: [] },
+    savedTheme: Theme = 'dark',
+    settingsDirty = false,
+    pendingPage: Page | null = null,
+    pendingReload = false;
+  function goTo(next: Page, shouldReload = false) {
+    if (page === 'settings' && next !== 'settings' && settingsDirty) {
+      pendingPage = next;
+      pendingReload = shouldReload;
+      return;
+    }
+    page = next;
+    if (shouldReload) reload();
+  }
+  function discardSettingsAndLeave() {
+    if (!pendingPage) return;
+    applyTheme(savedTheme);
+    settingsDirty = false;
+    page = pendingPage;
+    if (pendingReload) reload();
+    pendingPage = null;
+    pendingReload = false;
+  }
   const openGame = (id: number) => {
     gameId = id;
-    page = 'game';
+    goTo('game');
   };
   const reload = () => refresh++;
   $: statusGroups = trackingStatusGroups(status);
@@ -23,7 +46,10 @@
     status = next;
   }
   onMount(() => {
-    api.settings().then((v) => applyTheme(v.theme));
+    api.settings().then((v) => {
+      savedTheme = v.theme;
+      applyTheme(v.theme);
+    });
     api.status().then(updateStatus);
     const timer = setInterval(() => api.status().then(updateStatus), 3000);
     let off = () => {};
@@ -41,14 +67,13 @@
   <button
     class="brand"
     onclick={() => {
-      page = 'library';
-      reload();
+      goTo('library', true);
     }}>Eroge Playtime Tracker</button
   >
   <nav>
-    <button onclick={() => (page = 'library')}>ライブラリ</button><button
-      onclick={() => (page = 'add')}>ゲーム追加</button
-    ><button onclick={() => (page = 'settings')}>設定</button>
+    <button onclick={() => goTo('library')}>ライブラリ</button><button onclick={() => goTo('add')}
+      >ゲーム追加</button
+    ><button onclick={() => goTo('settings')}>設定</button>
   </nav>
   <div class="tracking-statuses">
     {#if statusGroups.length === 0}<span class="tracking-status idle">● 待機中</span>{/if}
@@ -70,5 +95,28 @@
         openGame(id);
       }}
       oncancel={() => (page = 'library')}
-    />{:else}<Settings ontheme={applyTheme} />{/if}
+    />{:else}<Settings
+      ontheme={applyTheme}
+      ondirty={(dirty) => (settingsDirty = dirty)}
+      onsaved={(theme) => (savedTheme = theme)}
+    />{/if}
 </main>
+{#if pendingPage}<div class="modal confirm-modal">
+    <div
+      class="panel confirm-box"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="unsaved-settings-title"
+      aria-describedby="unsaved-settings-message"
+    >
+      <div class="confirm-icon">!</div>
+      <h2 id="unsaved-settings-title">設定の変更を破棄しますか？</h2>
+      <p id="unsaved-settings-message">
+        保存されていない変更があります。移動すると変更内容は破棄されます。
+      </p>
+      <div class="confirm-actions">
+        <button onclick={() => (pendingPage = null)}>設定に戻る</button>
+        <button class="danger" onclick={discardSettingsAndLeave}>破棄して移動</button>
+      </div>
+    </div>
+  </div>{/if}

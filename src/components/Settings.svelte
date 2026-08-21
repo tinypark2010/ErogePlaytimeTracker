@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { api } from '../lib/api';
   import type { Settings, Theme } from '../lib/types';
   export let ontheme: (theme: Theme) => void = () => {};
+  export let ondirty: (dirty: boolean) => void = () => {};
+  export let onsaved: (theme: Theme) => void = () => {};
   let settings: Settings = {
       autostart: false,
       reconciliation_seconds: 3,
@@ -16,9 +18,21 @@
     recordingHotkey = false,
     checkingHotkey = false,
     hotkeyStatus = '';
+  let savedSettings: Settings | null = null,
+    lastDirty = false;
+  $: {
+    const dirty =
+      recordingHotkey ||
+      (savedSettings !== null && JSON.stringify(settings) !== JSON.stringify(savedSettings));
+    if (dirty !== lastDirty) {
+      lastDirty = dirty;
+      ondirty(dirty);
+    }
+  }
   onMount(async () => {
     try {
       settings = await api.settings();
+      savedSettings = { ...settings };
       ontheme(settings.theme);
       if (settings.screenshot_hotkey) {
         try {
@@ -31,6 +45,9 @@
       error = String(e);
     }
   });
+  onDestroy(() => {
+    if (recordingHotkey) api.resumeScreenshotHotkey().catch(() => {});
+  });
   function previewTheme() {
     ontheme(settings.theme);
   }
@@ -41,6 +58,9 @@
   async function save() {
     try {
       await api.updateSettings(settings);
+      savedSettings = { ...settings };
+      onsaved(settings.theme);
+      ondirty(false);
       message = '保存しました';
       error = '';
       hotkeyError = '';
