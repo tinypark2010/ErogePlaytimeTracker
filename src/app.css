@@ -835,19 +835,35 @@ small {
 .theme-dot {
   width: 22px;
   height: 22px;
+  padding: 0;
   border-radius: 50%;
   border: 2px solid #777;
 }
-.theme-dark {
+.theme-dot:hover {
+  transform: scale(1.08);
+}
+.theme-dot.selected {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+button.theme-dark,
+:root[data-theme] button.theme-dark,
+:root[data-theme] button.theme-dark:hover {
   background: #1b1922;
 }
-.theme-light {
+button.theme-light,
+:root[data-theme] button.theme-light,
+:root[data-theme] button.theme-light:hover {
   background: #faf9fc;
 }
-.theme-pink {
+button.theme-pink,
+:root[data-theme] button.theme-pink,
+:root[data-theme] button.theme-pink:hover {
   background: #ffdce9;
 }
-.theme-blue {
+button.theme-blue,
+:root[data-theme] button.theme-blue,
+:root[data-theme] button.theme-blue:hover {
   background: #dcecff;
 }
 :root[data-theme='light'] {

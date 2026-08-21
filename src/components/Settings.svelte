@@ -34,6 +34,10 @@
   function previewTheme() {
     ontheme(settings.theme);
   }
+  function selectTheme(theme: Theme) {
+    settings.theme = theme;
+    ontheme(theme);
+  }
   async function save() {
     try {
       await api.updateSettings(settings);
@@ -123,10 +127,36 @@
       ><option value="blue">ブルー</option></select
     ></label
   >
-  <div class="theme-preview" aria-hidden="true">
-    <span class="theme-dot theme-dark"></span><span class="theme-dot theme-light"></span><span
+  <div class="theme-preview" role="group" aria-label="カラーテーマを選択">
+    <button
+      type="button"
+      class="theme-dot theme-dark"
+      class:selected={settings.theme === 'dark'}
+      aria-label="ダークテーマを選択"
+      aria-pressed={settings.theme === 'dark'}
+      onclick={() => selectTheme('dark')}
+    ></button><button
+      type="button"
+      class="theme-dot theme-light"
+      class:selected={settings.theme === 'light'}
+      aria-label="ライトテーマを選択"
+      aria-pressed={settings.theme === 'light'}
+      onclick={() => selectTheme('light')}
+    ></button><button
+      type="button"
       class="theme-dot theme-pink"
-    ></span><span class="theme-dot theme-blue"></span>
+      class:selected={settings.theme === 'pink'}
+      aria-label="ピンクテーマを選択"
+      aria-pressed={settings.theme === 'pink'}
+      onclick={() => selectTheme('pink')}
+    ></button><button
+      type="button"
+      class="theme-dot theme-blue"
+      class:selected={settings.theme === 'blue'}
+      aria-label="ブルーテーマを選択"
+      aria-pressed={settings.theme === 'blue'}
+      onclick={() => selectTheme('blue')}
+    ></button>
   </div>
   <label class="check"
     ><input type="checkbox" bind:checked={settings.autostart} /> Windowsログイン時に自動起動</label
