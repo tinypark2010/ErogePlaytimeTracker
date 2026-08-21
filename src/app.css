@@ -1382,6 +1382,43 @@ small {
   align-items: center;
   gap: 0.75rem;
 }
+.session-heading-actions,
+.page-size-control,
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.page-size-control {
+  margin: 0;
+  color: #aaa3b4;
+  white-space: nowrap;
+}
+.page-size-control select {
+  width: auto;
+  min-width: 74px;
+  padding: 0.5rem 0.6rem;
+}
+.pagination {
+  justify-content: center;
+  margin-top: 1rem;
+}
+.pagination span {
+  min-width: 68px;
+  color: #aaa3b4;
+  text-align: center;
+}
+:root[data-theme]:not([data-theme='dark']) .page-size-control,
+:root[data-theme]:not([data-theme='dark']) .pagination span {
+  color: #706978;
+}
+@media (max-width: 700px) {
+  .screenshot-heading-actions,
+  .session-heading-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
 .screenshot-card {
   overflow: hidden;
   border: 1px solid #ffffff18;

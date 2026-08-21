@@ -49,6 +49,21 @@
     sessionEnd = '',
     sessionFormDirty = false;
   let confirmAction: ConfirmAction | null = null;
+  const pageSizeOptions = [10, 25, 50];
+  let screenshotPage = 1,
+    screenshotPageSize = 10,
+    sessionPage = 1,
+    sessionPageSize = 10;
+  $: screenshotPageCount = Math.max(1, Math.ceil(screenshots.length / screenshotPageSize));
+  $: sessionPageCount = Math.max(1, Math.ceil(sessions.length / sessionPageSize));
+  $: pagedScreenshots = screenshots.slice(
+    (screenshotPage - 1) * screenshotPageSize,
+    screenshotPage * screenshotPageSize,
+  );
+  $: pagedSessions = sessions.slice(
+    (sessionPage - 1) * sessionPageSize,
+    sessionPage * sessionPageSize,
+  );
   const confirmTitle = () =>
     confirmAction === 'session'
       ? 'セッションの削除'
@@ -73,6 +88,14 @@
       sessions = nextSessions;
       timestamps = nextTimestamps;
       screenshots = nextScreenshots;
+      screenshotPage = Math.min(
+        screenshotPage,
+        Math.max(1, Math.ceil(nextScreenshots.length / screenshotPageSize)),
+      );
+      sessionPage = Math.min(
+        sessionPage,
+        Math.max(1, Math.ceil(nextSessions.length / sessionPageSize)),
+      );
       if (selected) {
         selected = nextSessions.find((session) => session.id === selected?.id) ?? null;
         if (selected && !sessionFormDirty) {
@@ -95,6 +118,7 @@
     let unlistenScreenshot = () => {};
     listen<number>('screenshot-captured', (event) => {
       if (event.payload === gameId) {
+        screenshotPage = 1;
         load();
         showToast('スクリーンショットを保存しました');
       }
@@ -422,12 +446,22 @@
         <h2>スクリーンショット</h2>
         <div class="screenshot-heading-actions">
           <small>{screenshots.length}枚</small>
+          <label class="page-size-control"
+            >表示<select
+              value={screenshotPageSize}
+              onchange={(event) => {
+                screenshotPageSize = Number((event.currentTarget as HTMLSelectElement).value);
+                screenshotPage = 1;
+              }}
+              >{#each pageSizeOptions as size}<option value={size}>{size}件</option>{/each}</select
+            ></label
+          >
           <button onclick={openScreenshotDirectory}>保存先を開く</button>
         </div>
       </div>
       {#if screenshots.length}
         <div class="screenshot-grid">
-          {#each screenshots as shot}
+          {#each pagedScreenshots as shot}
             <article class="screenshot-card">
               <button class="screenshot-preview" onclick={() => (selectedScreenshot = shot)}>
                 <img
@@ -445,6 +479,19 @@
             </article>
           {/each}
         </div>
+        {#if screenshotPageCount > 1}<div
+            class="pagination"
+            aria-label="スクリーンショットのページ移動"
+          >
+            <button disabled={screenshotPage === 1} onclick={() => (screenshotPage -= 1)}
+              >← 前へ</button
+            >
+            <span>{screenshotPage} / {screenshotPageCount}</span>
+            <button
+              disabled={screenshotPage === screenshotPageCount}
+              onclick={() => (screenshotPage += 1)}>次へ →</button
+            >
+          </div>{/if}
       {:else}
         <p class="hint">計測中のゲームがフォアグラウンドにあるとき、設定したキーで撮影できます。</p>
       {/if}
@@ -515,11 +562,23 @@
     <section class="panel">
       <div class="panel-heading">
         <h2>Session History</h2>
-        <button class="danger" disabled={!sessions.length} onclick={removeAllSessions}
-          >すべてのセッションを削除</button
-        >
+        <div class="session-heading-actions">
+          <label class="page-size-control"
+            >表示<select
+              value={sessionPageSize}
+              onchange={(event) => {
+                sessionPageSize = Number((event.currentTarget as HTMLSelectElement).value);
+                sessionPage = 1;
+              }}
+              >{#each pageSizeOptions as size}<option value={size}>{size}件</option>{/each}</select
+            ></label
+          >
+          <button class="danger" disabled={!sessions.length} onclick={removeAllSessions}
+            >すべてのセッションを削除</button
+          >
+        </div>
       </div>
-      {#each sessions as s}<button
+      {#each pagedSessions as s}<button
           class:selected={selected?.id === s.id}
           class="session"
           onclick={() => select(s)}
@@ -527,6 +586,13 @@
             >{local(s.launched_at)} → {local(s.exited_at)}{s.needs_review ? ' ・ 要確認' : ''}</span
           ><strong>{duration(s.playtime_seconds)}</strong></button
         >{/each}
+      {#if sessionPageCount > 1}<div class="pagination" aria-label="セッション履歴のページ移動">
+          <button disabled={sessionPage === 1} onclick={() => (sessionPage -= 1)}>← 前へ</button>
+          <span>{sessionPage} / {sessionPageCount}</span>
+          <button disabled={sessionPage === sessionPageCount} onclick={() => (sessionPage += 1)}
+            >次へ →</button
+          >
+        </div>{/if}
     </section>
   </section>{/if}
 {#if selected}<div class="modal">
