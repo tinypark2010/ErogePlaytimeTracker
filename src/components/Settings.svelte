@@ -304,12 +304,12 @@
           onclick={installAvailableUpdate}>{installingUpdate ? '更新中…' : '更新して再起動'}</button
         >
       {/if}
+      {#if updateStatus}<p class="update-check-status">{updateStatus}</p>{/if}
     </div>
     <label class="check update-auto-check">
       <input type="checkbox" bind:checked={settings.auto_check_updates} />
       起動時に更新を自動確認して通知する
     </label>
-    {#if updateStatus}<p>{updateStatus}</p>{/if}
     {#if installingUpdate}
       <p>{updateProgressText()}</p>
       {#if updateContentLength}

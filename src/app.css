@@ -803,8 +803,12 @@ small {
 }
 .update-setting-actions {
   display: flex;
+  align-items: center;
   gap: 0.65rem;
   flex-wrap: wrap;
+}
+.update-setting-actions .update-check-status {
+  margin: 0;
 }
 .update-setting progress {
   width: 100%;
