@@ -763,6 +763,43 @@ small {
   min-width: 110px;
   white-space: nowrap;
 }
+.update-box {
+  width: min(520px, calc(100vw - 2rem));
+}
+.update-icon {
+  background: #4d397f;
+  color: #eee7ff;
+}
+.update-box details {
+  margin: 0 0 1.4rem;
+  text-align: left;
+}
+.update-box summary {
+  cursor: pointer;
+  color: #c4bdca;
+}
+.update-notes {
+  max-height: 180px;
+  margin-top: 0.65rem;
+  padding: 0.75rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 7px;
+  background: #111016;
+}
+.update-box .update-progress {
+  margin-bottom: 0.5rem;
+}
+.update-box progress {
+  width: 100%;
+  margin-bottom: 1.4rem;
+}
+:root[data-theme]:not([data-theme='dark']) .update-box summary {
+  color: #706978;
+}
+:root[data-theme]:not([data-theme='dark']) .update-notes {
+  background: #0000000b;
+}
 .theme-preview {
   display: flex;
   gap: 0.45rem;

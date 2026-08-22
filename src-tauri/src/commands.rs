@@ -27,7 +27,10 @@ pub fn list_system_fonts() -> Cmd<Vec<String>> {
     ) -> i32 {
         let values = unsafe { &mut *(fonts.0 as *mut BTreeSet<String>) };
         let face = unsafe { &(*font).lfFaceName };
-        let length = face.iter().position(|value| *value == 0).unwrap_or(face.len());
+        let length = face
+            .iter()
+            .position(|value| *value == 0)
+            .unwrap_or(face.len());
         let name = String::from_utf16_lossy(&face[..length]);
         if !name.is_empty() && !name.starts_with('@') {
             values.insert(name);
@@ -43,9 +46,9 @@ pub fn list_system_fonts() -> Cmd<Vec<String>> {
         }
         // GDI filters families by character set. Query every character set commonly
         // registered by Windows so Latin, Japanese, CJK and symbol fonts are all included.
-        for charset in [0, 1, 2, 77, 128, 129, 130, 134, 136, 161, 162, 163, 177, 178, 186, 204,
-            222, 238, 255]
-        {
+        for charset in [
+            0, 1, 2, 77, 128, 129, 130, 134, 136, 161, 162, 163, 177, 178, 186, 204, 222, 238, 255,
+        ] {
             let query = LOGFONTW {
                 lfCharSet: FONT_CHARSET(charset),
                 ..Default::default()

@@ -5,6 +5,7 @@
   import GameDetail from './components/GameDetail.svelte';
   import AddGame from './components/AddGame.svelte';
   import Settings from './components/Settings.svelte';
+  import UpdatePrompt from './components/UpdatePrompt.svelte';
   import { api } from './lib/api';
   import { trackingStatusGroups, trackingStatusText } from './lib/trackingStatus';
   import type { Theme, TrackingStatus } from './lib/types';
@@ -101,6 +102,7 @@
       onsaved={(theme) => (savedTheme = theme)}
     />{/if}
 </main>
+<UpdatePrompt />
 {#if pendingPage}<div class="modal confirm-modal">
     <div
       class="panel confirm-box"
