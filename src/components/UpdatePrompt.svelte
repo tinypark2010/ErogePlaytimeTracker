@@ -12,11 +12,6 @@
   let error = '';
 
   $: version = update?.version ?? '0.1.6';
-  $: notes =
-    update?.body ??
-    (preview
-      ? '更新通知の表示確認用モックです。\n\n・アプリ内アップデートに対応しました\n・更新内容とダウンロード進捗を表示します'
-      : undefined);
 
   onMount(() => {
     if (import.meta.env.DEV && import.meta.env.VITE_MOCK_UPDATE === 'true') {
@@ -75,12 +70,6 @@
       <p id="update-message">
         バージョン {version} を利用できます。更新するとアプリが再起動します。
       </p>
-      {#if notes}
-        <details>
-          <summary>リリースノート</summary>
-          <div class="update-notes">{notes}</div>
-        </details>
-      {/if}
       {#if installing}
         <p class="update-progress">{progressText()}</p>
         {#if contentLength}
