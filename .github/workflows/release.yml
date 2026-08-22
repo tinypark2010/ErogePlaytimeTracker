@@ -89,11 +89,6 @@ jobs:
           tauriScript: npm run tauri
           tagName: ${{ github.ref_name }}
           releaseName: Eroge Playtime Tracker ${{ github.ref_name }}
-          releaseBody: |
-            Windows 10 / 11 x64向けインストーラーです。
-            ダウンロード後、`setup.exe`を実行してください。
-
-            コード署名は未導入のため、Windows SmartScreenの警告が表示される場合があります。
           generateReleaseNotes: true
           releaseDraft: false
           prerelease: false
