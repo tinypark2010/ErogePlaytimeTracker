@@ -78,10 +78,10 @@ game IDまたはgame URLからtitle、brand、発売日、package imageを取得
 
 ## Release
 
-バージョンを `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` の3箇所で一致させ、同じバージョンのtagをpushするとGitHub ActionsがWindows x64 installerを自動生成します。
+バージョンを `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json` で一致させ、同じバージョンのtagをpushするとGitHub ActionsがWindows x64 installerを自動生成します。
 
 ```powershell
-git tag v0.1.0
+git tag -a v0.1.0 -m "Eroge Playtime Tracker v0.1.0"
 git push origin v0.1.0
 ```
 
