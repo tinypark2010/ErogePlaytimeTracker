@@ -8,6 +8,8 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
+    "commit-policy:check": "node scripts/validate-commits.mjs",
+    "commit-policy:test": "vitest run scripts/validate-commits.test.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "licenses": "node scripts/generate-licenses.mjs",

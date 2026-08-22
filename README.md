@@ -36,6 +36,10 @@ TypeScript、Svelte、CSS、JSONなどを整形する場合は `npm run format` 
 
 Rustテストにはgame単位のsession遷移、launcherを含む複数exe、複数ゲーム間のforeground遷移、集計・重複validation、fixtureベースのErogameScape parser検証が含まれます。
 
+## Development workflow
+
+`main`への直接commit/pushは行わず、topic branchからpull requestを作成します。branch、commit prefix、commit/PRの粒度、stacked PR、merge方法の規約は [docs/development-workflow.md](docs/development-workflow.md) を参照してください。
+
 ## Windows build / installer
 
 ```powershell
