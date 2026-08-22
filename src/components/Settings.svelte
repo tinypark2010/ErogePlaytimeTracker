@@ -8,6 +8,7 @@
   export let ontheme: (theme: Theme) => void = () => {};
   export let ondirty: (dirty: boolean) => void = () => {};
   export let onsaved: (settings: Settings) => void = () => {};
+  export let trackingActive = false;
   let settings: Settings = {
       autostart: false,
       auto_check_updates: true,
@@ -175,6 +176,18 @@
     }
   }
   async function installAvailableUpdate() {
+    let gameIsRunning = trackingActive;
+    try {
+      gameIsRunning ||= (await api.status()).games.length > 0;
+    } catch (e) {
+      updateError = `ゲームの起動状態を確認できませんでした: ${String(e)}`;
+      return;
+    }
+    if (gameIsRunning) {
+      updateError = '';
+      updateStatus = '起動中のゲームを終了してから更新してください。';
+      return;
+    }
     if (previewUpdateAvailable) {
       updateError = '';
       updateStatus = 'モック表示のため、実際の更新は行いません。';
@@ -294,26 +307,38 @@
       {/if}
     </div>
     <div class="update-setting-actions">
-      <button type="button" disabled={checkingUpdate || installingUpdate} onclick={checkForUpdate}>
-        {checkingUpdate ? '確認中…' : '更新を確認'}
-      </button>
-      {#if availableUpdate || previewUpdateAvailable}
+      <div class="update-setting-buttons">
         <button
           type="button"
-          class="primary"
-          disabled={installingUpdate}
-          onclick={installAvailableUpdate}>{installingUpdate ? '更新中…' : '更新して再起動'}</button
+          disabled={checkingUpdate || installingUpdate}
+          onclick={checkForUpdate}
         >
-      {/if}
-      {#if updateStatus}<p class="update-check-status">{updateStatus}</p>{/if}
-      {#if updateError}<p class="error update-check-status">{updateError}</p>{/if}
+          {checkingUpdate ? '確認中…' : '更新を確認'}
+        </button>
+        {#if availableUpdate || previewUpdateAvailable}
+          <button
+            type="button"
+            class="primary"
+            disabled={installingUpdate || trackingActive}
+            onclick={installAvailableUpdate}
+            >{installingUpdate ? '更新中…' : '更新して再起動'}</button
+          >
+        {/if}
+      </div>
+      <div class="update-setting-feedback" aria-live="polite">
+        {#if updateStatus}<p>{updateStatus}</p>{/if}
+        {#if updateError}<p class="error">{updateError}</p>{/if}
+        {#if (availableUpdate || previewUpdateAvailable) && trackingActive}
+          <p>起動中のゲームを終了すると更新できます。</p>
+        {/if}
+        {#if installingUpdate}
+          <p>{updateProgressText()}</p>
+          {#if updateContentLength}
+            <progress value={updateDownloaded} max={updateContentLength}></progress>
+          {/if}
+        {/if}
+      </div>
     </div>
-    {#if installingUpdate}
-      <p>{updateProgressText()}</p>
-      {#if updateContentLength}
-        <progress value={updateDownloaded} max={updateContentLength}></progress>
-      {/if}
-    {/if}
     <label class="check update-auto-check">
       <input type="checkbox" bind:checked={settings.auto_check_updates} />
       起動時に更新を自動確認して通知する

@@ -6,6 +6,7 @@
 
   export let autoCheck = true;
   export let skippedVersion: string | null = null;
+  export let trackingActive = false;
   export let onskip: (version: string) => void = () => {};
 
   let update: Awaited<ReturnType<typeof check>> = null;
@@ -48,6 +49,17 @@
   }
 
   async function install() {
+    let gameIsRunning = trackingActive;
+    try {
+      gameIsRunning ||= (await api.status()).games.length > 0;
+    } catch (statusError) {
+      error = `ゲームの起動状態を確認できませんでした: ${String(statusError)}`;
+      return;
+    }
+    if (gameIsRunning) {
+      notice = '起動中のゲームを終了してから更新してください。';
+      return;
+    }
     if (preview) {
       error = '';
       notice = 'モック表示のため、実際の更新は行いません。';
@@ -103,10 +115,16 @@
       {/if}
       {#if error}<p class="error">{error}</p>{/if}
       {#if notice}<p>{notice}</p>{/if}
+      {#if trackingActive}<p>起動中のゲームを終了すると更新できます。</p>{/if}
       <div class="confirm-actions">
         <button type="button" disabled={installing} onclick={() => (dismissed = true)}>後で</button>
         <button type="button" disabled={installing} onclick={skip}>このバージョンをスキップ</button>
-        <button type="button" class="primary" disabled={installing} onclick={install}>
+        <button
+          type="button"
+          class="primary"
+          disabled={installing || trackingActive}
+          onclick={install}
+        >
           {installing ? '更新中…' : '更新して再起動'}
         </button>
       </div>

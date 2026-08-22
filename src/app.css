@@ -802,12 +802,20 @@ small {
   margin: 0;
 }
 .update-setting-actions {
+  display: grid;
+  gap: 0.65rem;
+}
+.update-setting-buttons {
   display: flex;
-  align-items: center;
   gap: 0.65rem;
   flex-wrap: wrap;
 }
-.update-setting-actions .update-check-status {
+.update-setting-feedback {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.update-setting-feedback p {
   margin: 0;
 }
 .update-setting progress {
@@ -960,6 +968,33 @@ button.theme-blue,
 :root[data-theme='blue'] button:hover {
   background: #c9def3;
 }
+button:disabled,
+button:disabled:hover {
+  cursor: not-allowed;
+  color: #817a89;
+  background: #211f28;
+  border-color: #35313e;
+  opacity: 0.62;
+  transform: none;
+}
+:root[data-theme='light'] button:disabled,
+:root[data-theme='light'] button:disabled:hover {
+  color: #918b97;
+  background: #e5e2e8;
+  border-color: #d2cdd6;
+}
+:root[data-theme='pink'] button:disabled,
+:root[data-theme='pink'] button:disabled:hover {
+  color: #9b7f8c;
+  background: #eadde2;
+  border-color: #d9c5cd;
+}
+:root[data-theme='blue'] button:disabled,
+:root[data-theme='blue'] button:disabled:hover {
+  color: #788b9f;
+  background: #dde5ed;
+  border-color: #c7d2dd;
+}
 :root[data-theme='light'] input,
 :root[data-theme='light'] select,
 :root[data-theme='light'] textarea {
@@ -984,6 +1019,30 @@ button.theme-blue,
 :root[data-theme]:not([data-theme='dark']) .primary {
   color: #fff;
   background: #7654cc;
+}
+button.primary:disabled,
+button.primary:disabled:hover {
+  color: #817a89;
+  background: #211f28;
+  border-color: #35313e;
+}
+:root[data-theme='light'] button.primary:disabled,
+:root[data-theme='light'] button.primary:disabled:hover {
+  color: #918b97;
+  background: #e5e2e8;
+  border-color: #d2cdd6;
+}
+:root[data-theme='pink'] button.primary:disabled,
+:root[data-theme='pink'] button.primary:disabled:hover {
+  color: #9b7f8c;
+  background: #eadde2;
+  border-color: #d9c5cd;
+}
+:root[data-theme='blue'] button.primary:disabled,
+:root[data-theme='blue'] button.primary:disabled:hover {
+  color: #788b9f;
+  background: #dde5ed;
+  border-color: #c7d2dd;
 }
 :root[data-theme]:not([data-theme='dark']) .danger {
   color: #fff;

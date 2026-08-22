@@ -103,6 +103,7 @@
       }}
       oncancel={() => (page = 'library')}
     />{:else}<Settings
+      trackingActive={status.games.length > 0}
       ontheme={applyTheme}
       ondirty={(dirty) => (settingsDirty = dirty)}
       onsaved={(settings) => {
@@ -116,6 +117,7 @@
   <UpdatePrompt
     autoCheck={autoCheckUpdates}
     skippedVersion={skippedUpdateVersion}
+    trackingActive={status.games.length > 0}
     onskip={(version) => (skippedUpdateVersion = version)}
   />
 {/if}
