@@ -794,10 +794,6 @@ small {
   display: grid;
   gap: 0.65rem;
   margin: 1rem 0;
-  padding: 1rem;
-  border: 1px solid #ffffff18;
-  border-radius: 9px;
-  background: #11101666;
 }
 .update-setting p {
   margin: 0;
@@ -809,10 +805,6 @@ small {
 }
 .update-setting progress {
   width: 100%;
-}
-:root[data-theme]:not([data-theme='dark']) .update-setting {
-  border-color: #0002;
-  background: #ffffff70;
 }
 .hotkey-recorder {
   display: flex;
