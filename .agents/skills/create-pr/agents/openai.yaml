@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Create PR'
+  short_description: 'Prepare focused commits and open a repository pull request'
+  default_prompt: 'Use $create-pr to organize the current changes and open a pull request.'

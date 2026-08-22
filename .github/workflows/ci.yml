@@ -1,0 +1,80 @@
+name: Pull request checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pull-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit Rust dependency licenses
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Audit Rust dependency licenses and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses sources
+          manifest-path: src-tauri/Cargo.toml
+
+  verify:
+    name: Verify pull request
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Test commit policy validator
+        run: npm run commit-policy:test
+
+      - name: Check pull request commits
+        run: npm run commit-policy:check -- --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.event.pull_request.head.sha }}"
+
+      - name: Generate and audit third-party license notices
+        run: npm run licenses
+
+      - name: Frontend checks
+        run: |
+          npm run format:check
+          npm run check
+          npm run test
+          npm run build
+
+      - name: Rust checks
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
