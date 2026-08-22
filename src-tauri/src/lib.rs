@@ -143,6 +143,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_games,
             commands::list_brands,
+            commands::list_system_fonts,
             commands::get_game,
             commands::create_game,
             commands::update_game,

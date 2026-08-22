@@ -28,6 +28,7 @@ export const api = {
       descending,
     }),
   listBrands: () => invoke<string[]>('list_brands'),
+  systemFonts: () => invoke<string[]>('list_system_fonts'),
   getGame: (id: number) => invoke<GameDetail>('get_game', { id }),
   createGame: (input: {
     title: string;

@@ -9,6 +9,66 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 #[tauri::command]
+#[cfg(windows)]
+pub fn list_system_fonts() -> Cmd<Vec<String>> {
+    use std::collections::BTreeSet;
+    use windows::Win32::{
+        Foundation::LPARAM,
+        Graphics::Gdi::{
+            EnumFontFamiliesExW, FONT_CHARSET, GetDC, LOGFONTW, ReleaseDC, TEXTMETRICW,
+        },
+    };
+
+    unsafe extern "system" fn collect_font(
+        font: *const LOGFONTW,
+        _metric: *const TEXTMETRICW,
+        _font_type: u32,
+        fonts: LPARAM,
+    ) -> i32 {
+        let values = unsafe { &mut *(fonts.0 as *mut BTreeSet<String>) };
+        let face = unsafe { &(*font).lfFaceName };
+        let length = face.iter().position(|value| *value == 0).unwrap_or(face.len());
+        let name = String::from_utf16_lossy(&face[..length]);
+        if !name.is_empty() && !name.starts_with('@') {
+            values.insert(name);
+        }
+        1
+    }
+
+    let mut fonts = BTreeSet::new();
+    unsafe {
+        let dc = GetDC(None);
+        if dc.is_invalid() {
+            return Err("Windowsのフォント一覧を取得できませんでした".into());
+        }
+        // GDI filters families by character set. Query every character set commonly
+        // registered by Windows so Latin, Japanese, CJK and symbol fonts are all included.
+        for charset in [0, 1, 2, 77, 128, 129, 130, 134, 136, 161, 162, 163, 177, 178, 186, 204,
+            222, 238, 255]
+        {
+            let query = LOGFONTW {
+                lfCharSet: FONT_CHARSET(charset),
+                ..Default::default()
+            };
+            EnumFontFamiliesExW(
+                dc,
+                &query,
+                Some(collect_font),
+                LPARAM((&mut fonts as *mut BTreeSet<String>) as isize),
+                0,
+            );
+        }
+        ReleaseDC(None, dc);
+    }
+    Ok(fonts.into_iter().collect())
+}
+
+#[tauri::command]
+#[cfg(not(windows))]
+pub fn list_system_fonts() -> Cmd<Vec<String>> {
+    Ok(Vec::new())
+}
+#[tauri::command]
 pub fn list_games(
     state: State<AppState>,
     search: String,
