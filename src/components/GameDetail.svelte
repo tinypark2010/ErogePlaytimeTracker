@@ -22,8 +22,13 @@
   } from '../lib/types';
   type ConfirmAction = 'session' | 'all-sessions' | 'game';
   type SocialStyle = 'midnight' | 'rose' | 'ocean';
-  type SocialLayout = 'auto' | 'left' | 'right' | 'top' | 'bottom';
+  type SocialLayout = 'auto' | 'left' | 'right' | 'top' | 'bottom' | 'custom';
+  type SocialPreset = Exclude<SocialLayout, 'custom'>;
   type TimestampTimeMode = 'total' | 'difference';
+  type SocialElement = 'image' | 'info';
+  type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+  type SocialRect = { x: number; y: number; width: number; height: number };
+  const defaultSocialFont = 'Yu Gothic UI';
   export let gameId: number;
   export let onback: () => void;
   let game: GameDetail | null = null,
@@ -57,12 +62,20 @@
     socialTimestampIds: number[] = [],
     socialStyle: SocialStyle = 'midnight',
     socialLayout: SocialLayout = 'auto',
-    socialPanelSize = 26,
-    socialMargin = 16,
-    socialGap = 16,
+    socialFontSize = 85,
+    socialFont = defaultSocialFont,
+    socialFontSearch = '',
+    socialLocalFonts: string[] = [],
+    socialFontsLoading = false,
+    socialImageRatio = 70,
+    socialImageRect: SocialRect = { x: 1, y: 2, width: 98, height: 68 },
+    socialInfoRect: SocialRect = { x: 1, y: 72, width: 98, height: 26 },
+    socialSelectedElement: SocialElement | null = null,
     socialTimestampTimeMode: TimestampTimeMode = 'total',
     socialSaving = false,
-    socialRenderToken = 0;
+    socialRenderToken = 0,
+    socialRenderFrame = 0;
+  const socialImageCache = new Map<string, Promise<HTMLImageElement>>();
   let socialFields = {
     title: true,
     brand: true,
@@ -73,6 +86,8 @@
     timestamp: false,
     capturedAt: false,
   };
+  let socialImageEditorRect: SocialRect;
+  let socialFilteredFonts: string[];
   let confirmAction: ConfirmAction | null = null;
   const pageSizeOptions = [10, 25, 50];
   let screenshotPage = 1,
@@ -89,22 +104,34 @@
     (sessionPage - 1) * sessionPageSize,
     sessionPage * sessionPageSize,
   );
+  $: socialImageEditorRect = fittedSocialImageRect(
+    socialImageRect,
+    socialScreenshotId,
+    screenshots,
+  );
+  $: socialFilteredFonts = socialFontSearch.trim()
+    ? socialLocalFonts.filter((font) =>
+        font.toLocaleLowerCase().includes(socialFontSearch.trim().toLocaleLowerCase()),
+      )
+    : socialLocalFonts;
   $: socialRenderKey = JSON.stringify({
     socialOpen,
     socialScreenshotId,
     socialTimestampIds,
     socialStyle,
     socialLayout,
-    socialPanelSize,
-    socialMargin,
-    socialGap,
+    socialFontSize,
+    socialFont,
+    socialImageRatio,
+    socialImageRect,
+    socialInfoRect,
     socialTimestampTimeMode,
     socialFields,
     game,
   });
   $: if (socialOpen && socialCanvas) {
     socialRenderKey;
-    renderSocialPreview();
+    scheduleSocialPreview();
   }
   const confirmTitle = () =>
     confirmAction === 'session'
@@ -395,7 +422,9 @@
     }
   }
   async function openSocialCreator(screenshotId?: number) {
+    void loadLocalFonts();
     socialScreenshotId = screenshotId ?? screenshots[0]?.id ?? 0;
+    resetSocialLayout();
     socialTimestampIds = timestamps.map((point) => point.id);
     socialOpen = true;
     await tick();
@@ -403,9 +432,201 @@
   }
   function resetSocialLayout() {
     socialLayout = 'auto';
-    socialPanelSize = 26;
-    socialMargin = 16;
-    socialGap = 16;
+    socialFontSize = 85;
+    socialImageRatio = 70;
+    applySocialPreset('auto');
+  }
+  function applySocialPreset(layout: SocialPreset) {
+    const shot = screenshots.find((item) => item.id === socialScreenshotId);
+    const aspect = shot && shot.height ? shot.width / shot.height : 16 / 9;
+    const resolved = layout === 'auto' ? (aspect < 1.4 ? 'left' : 'bottom') : layout;
+    socialLayout = layout;
+    const sideImageLength = 96 * (socialImageRatio / 100);
+    const sideInfoLength = 96 - sideImageLength;
+    const verticalImageLength = 93 * (socialImageRatio / 100);
+    const verticalInfoLength = 93 - verticalImageLength;
+    if (resolved === 'left') {
+      socialInfoRect = { x: 1, y: 2, width: sideInfoLength, height: 96 };
+      socialImageRect = { x: 3 + sideInfoLength, y: 2, width: sideImageLength, height: 96 };
+    } else if (resolved === 'right') {
+      socialImageRect = { x: 1, y: 2, width: sideImageLength, height: 96 };
+      socialInfoRect = { x: 3 + sideImageLength, y: 2, width: sideInfoLength, height: 96 };
+    } else if (resolved === 'top') {
+      socialInfoRect = { x: 1, y: 2, width: 98, height: verticalInfoLength };
+      socialImageRect = { x: 1, y: 5 + verticalInfoLength, width: 98, height: verticalImageLength };
+    } else {
+      socialImageRect = { x: 1, y: 2, width: 98, height: verticalImageLength };
+      socialInfoRect = { x: 1, y: 5 + verticalImageLength, width: 98, height: verticalInfoLength };
+    }
+    socialSelectedElement = null;
+  }
+  function applySocialRatio(value: number) {
+    socialImageRatio = value;
+    let layout: SocialPreset;
+    if (socialLayout !== 'custom' && socialLayout !== 'auto') layout = socialLayout;
+    else {
+      const imageCenterX = socialImageRect.x + socialImageRect.width / 2;
+      const imageCenterY = socialImageRect.y + socialImageRect.height / 2;
+      const infoCenterX = socialInfoRect.x + socialInfoRect.width / 2;
+      const infoCenterY = socialInfoRect.y + socialInfoRect.height / 2;
+      const dx = (imageCenterX - infoCenterX) * 16;
+      const dy = (imageCenterY - infoCenterY) * 9;
+      layout =
+        Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'left' : 'right') : dy > 0 ? 'top' : 'bottom';
+    }
+    applySocialPreset(layout);
+  }
+  function socialFontFamily() {
+    return `"${socialFont.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}", sans-serif`;
+  }
+  async function loadLocalFonts() {
+    if (socialFontsLoading || socialLocalFonts.length) return;
+    socialFontsLoading = true;
+    try {
+      socialLocalFonts = await api.systemFonts();
+      if (!socialLocalFonts.length) throw new Error('利用可能なフォントが見つかりませんでした');
+    } catch (e) {
+      showToast(`フォント一覧を取得できませんでした: ${String(e)}`, true);
+    } finally {
+      socialFontsLoading = false;
+    }
+  }
+  function socialRect(element: SocialElement) {
+    return element === 'image' ? socialImageRect : socialInfoRect;
+  }
+  function fittedSocialImageRect(
+    rect: SocialRect,
+    screenshotId: number,
+    availableScreenshots: GameScreenshot[],
+  ) {
+    const shot = availableScreenshots.find((item) => item.id === screenshotId);
+    if (!shot?.width || !shot.height) return rect;
+    const areaWidth = rect.width * 16;
+    const areaHeight = rect.height * 9;
+    const scale = Math.min(areaWidth / shot.width, areaHeight / shot.height);
+    const fittedWidth = (shot.width * scale) / 16;
+    const fittedHeight = (shot.height * scale) / 9;
+    return {
+      x: rect.x + (rect.width - fittedWidth) / 2,
+      y: rect.y + (rect.height - fittedHeight) / 2,
+      width: fittedWidth,
+      height: fittedHeight,
+    };
+  }
+  function setSocialRect(element: SocialElement, rect: SocialRect) {
+    const next = {
+      x: Math.max(0, Math.min(100 - rect.width, rect.x)),
+      y: Math.max(0, Math.min(100 - rect.height, rect.y)),
+      width: rect.width,
+      height: rect.height,
+    };
+    if (element === 'image') socialImageRect = next;
+    else socialInfoRect = next;
+  }
+  function beginSocialTransform(
+    event: PointerEvent,
+    element: SocialElement,
+    handle?: ResizeHandle,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    socialSelectedElement = element;
+    socialLayout = 'custom';
+    const editor = (event.currentTarget as HTMLElement).closest(
+      '.social-canvas-editor',
+    ) as HTMLElement | null;
+    if (!editor) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const start = { ...(element === 'image' ? socialImageEditorRect : socialInfoRect) };
+    if (element === 'image') socialImageRect = start;
+    const move = (nextEvent: PointerEvent) => {
+      const dx = ((nextEvent.clientX - startX) / editor.clientWidth) * 100;
+      const dy = ((nextEvent.clientY - startY) / editor.clientHeight) * 100;
+      if (!handle) {
+        setSocialRect(element, { ...start, x: start.x + dx, y: start.y + dy });
+        return;
+      }
+      if (element === 'image') {
+        const shot = screenshots.find((item) => item.id === socialScreenshotId);
+        const aspect = shot?.width && shot.height ? (shot.width / shot.height) * (9 / 16) : 1;
+        const horizontalEdge = handle === 'e' || handle === 'w';
+        const verticalEdge = handle === 'n' || handle === 's';
+        const centerX = start.x + start.width / 2;
+        const centerY = start.y + start.height / 2;
+        const anchorX = handle.includes('w') ? start.x + start.width : start.x;
+        const anchorY = handle.includes('n') ? start.y + start.height : start.y;
+        const horizontalWidth = handle.includes('w')
+          ? anchorX - (start.x + dx)
+          : start.x + start.width + dx - anchorX;
+        const verticalHeight = handle.includes('n')
+          ? anchorY - (start.y + dy)
+          : start.y + start.height + dy - anchorY;
+        const useHorizontal = horizontalEdge
+          ? true
+          : verticalEdge
+            ? false
+            : Math.abs(dx) / Math.max(1, start.width) >= Math.abs(dy) / Math.max(1, start.height);
+        const minimumWidth = Math.max(8, 8 * aspect);
+        const maximumWidthX = horizontalEdge
+          ? handle === 'w'
+            ? anchorX
+            : 100 - anchorX
+          : verticalEdge
+            ? Math.min(centerX, 100 - centerX) * 2
+            : handle.includes('w')
+              ? anchorX
+              : 100 - anchorX;
+        const maximumHeight = verticalEdge
+          ? handle === 'n'
+            ? anchorY
+            : 100 - anchorY
+          : horizontalEdge
+            ? Math.min(centerY, 100 - centerY) * 2
+            : handle.includes('n')
+              ? anchorY
+              : 100 - anchorY;
+        const maximumWidth = Math.min(maximumWidthX, maximumHeight * aspect);
+        const desiredWidth = useHorizontal ? horizontalWidth : verticalHeight * aspect;
+        const nextWidth = Math.max(
+          Math.min(minimumWidth, maximumWidth),
+          Math.min(maximumWidth, desiredWidth),
+        );
+        const nextHeight = nextWidth / aspect;
+        setSocialRect(element, {
+          x: verticalEdge
+            ? centerX - nextWidth / 2
+            : handle.includes('w')
+              ? anchorX - nextWidth
+              : anchorX,
+          y: horizontalEdge
+            ? centerY - nextHeight / 2
+            : handle.includes('n')
+              ? anchorY - nextHeight
+              : anchorY,
+          width: nextWidth,
+          height: nextHeight,
+        });
+        return;
+      }
+      let left = start.x;
+      let top = start.y;
+      let right = start.x + start.width;
+      let bottom = start.y + start.height;
+      if (handle.includes('w')) left = Math.min(right - 8, Math.max(0, left + dx));
+      if (handle.includes('e')) right = Math.max(left + 8, Math.min(100, right + dx));
+      if (handle.includes('n')) top = Math.min(bottom - 8, Math.max(0, top + dy));
+      if (handle.includes('s')) bottom = Math.max(top + 8, Math.min(100, bottom + dy));
+      setSocialRect(element, { x: left, y: top, width: right - left, height: bottom - top });
+    };
+    const end = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end, { once: true });
+    window.addEventListener('pointercancel', end, { once: true });
   }
   function toggleSocialTimestamp(id: number, selected: boolean) {
     socialTimestampIds = selected
@@ -419,13 +640,22 @@
     if (enabled) socialTimestampIds = timestamps.map((point) => point.id);
   }
   function canvasImage(path: string) {
-    return new Promise<HTMLImageElement>((resolve, reject) => {
+    const cached = socialImageCache.get(path);
+    if (cached) return cached;
+    const pending = new Promise<HTMLImageElement>((resolve, reject) => {
       const image = new Image();
       image.crossOrigin = 'anonymous';
       image.onload = () => resolve(image);
       image.onerror = () => reject(new Error('スクリーンショットを読み込めませんでした'));
       image.src = imageSrc(path);
     });
+    socialImageCache.set(path, pending);
+    pending.catch(() => socialImageCache.delete(path));
+    return pending;
+  }
+  function scheduleSocialPreview() {
+    cancelAnimationFrame(socialRenderFrame);
+    socialRenderFrame = requestAnimationFrame(() => renderSocialPreview());
   }
   function fitText(
     context: CanvasRenderingContext2D,
@@ -437,7 +667,7 @@
   ) {
     let size = maxSize;
     do {
-      context.font = `${weight} ${size}px "Yu Gothic UI", Meiryo, sans-serif`;
+      context.font = `${weight} ${size}px ${socialFontFamily()}`;
       if (context.measureText(text).width <= maxWidth) return size;
       size -= 2;
     } while (size >= minSize);
@@ -468,31 +698,12 @@
       if (token !== socialRenderToken) return;
       const context = canvas.getContext('2d');
       if (!context) return;
-      const width = canvas.width,
-        height = canvas.height;
-      // Fill otherwise-empty margins with a subdued version of the image,
-      // then place the complete screenshot on top without cropping it.
-      const backgroundScale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
-      const backgroundWidth = image.naturalWidth * backgroundScale,
-        backgroundHeight = image.naturalHeight * backgroundScale;
-      context.save();
-      context.filter = 'blur(28px) brightness(0.55)';
-      context.drawImage(
-        image,
-        (width - backgroundWidth) / 2 - 20,
-        (height - backgroundHeight) / 2 - 20,
-        backgroundWidth + 40,
-        backgroundHeight + 40,
-      );
-      context.restore();
       const palette =
         socialStyle === 'rose'
           ? { accent: '#ff82b2', panel: 'rgba(55, 15, 34, .88)', glow: 'rgba(255, 80, 150, .42)' }
           : socialStyle === 'ocean'
             ? { accent: '#69c8ff', panel: 'rgba(8, 29, 50, .88)', glow: 'rgba(40, 155, 240, .4)' }
             : { accent: '#b49aff', panel: 'rgba(18, 14, 29, .9)', glow: 'rgba(121, 87, 213, .42)' };
-      context.fillStyle = 'rgba(5, 5, 9, .42)';
-      context.fillRect(0, 0, width, height);
       const selectedPoints = timestamps.filter((item) => socialTimestampIds.includes(item.id));
       const pointText = (point: GameTimestamp) => {
         const difference = socialTimestampTimeMode === 'difference';
@@ -508,65 +719,36 @@
         socialFields.lastPlayed ||
         socialFields.capturedAt ||
         (socialFields.timestamp && selectedPoints.length > 0);
-      const imageAspect = image.naturalWidth / image.naturalHeight;
-      const resolvedLayout: Exclude<SocialLayout, 'auto'> =
-        socialLayout === 'auto' ? (imageAspect < 1.55 ? 'left' : 'bottom') : socialLayout;
-      const sideLayout = resolvedLayout === 'left' || resolvedLayout === 'right';
-      const availableWidth = width - socialMargin * 2;
-      const availableHeight = height - socialMargin * 2;
-      const panelWidth = sideLayout
-        ? Math.round((availableWidth - socialGap) * (socialPanelSize / 100))
-        : availableWidth;
-      const panelHeight = sideLayout
-        ? availableHeight
-        : Math.round((availableHeight - socialGap) * (socialPanelSize / 100));
-      const infoArea =
-        resolvedLayout === 'left'
-          ? { x: socialMargin, y: socialMargin, width: panelWidth, height: panelHeight }
-          : resolvedLayout === 'right'
-            ? {
-                x: width - socialMargin - panelWidth,
-                y: socialMargin,
-                width: panelWidth,
-                height: panelHeight,
-              }
-            : resolvedLayout === 'top'
-              ? { x: socialMargin, y: socialMargin, width: panelWidth, height: panelHeight }
-              : {
-                  x: socialMargin,
-                  y: height - socialMargin - panelHeight,
-                  width: panelWidth,
-                  height: panelHeight,
-                };
-      const imageArea = !hasVisibleInfo
-        ? { x: socialMargin, y: socialMargin, width: availableWidth, height: availableHeight }
-        : resolvedLayout === 'left'
-          ? {
-              x: infoArea.x + infoArea.width + socialGap,
-              y: socialMargin,
-              width: availableWidth - infoArea.width - socialGap,
-              height: availableHeight,
-            }
-          : resolvedLayout === 'right'
-            ? {
-                x: socialMargin,
-                y: socialMargin,
-                width: availableWidth - infoArea.width - socialGap,
-                height: availableHeight,
-              }
-            : resolvedLayout === 'top'
-              ? {
-                  x: socialMargin,
-                  y: infoArea.y + infoArea.height + socialGap,
-                  width: availableWidth,
-                  height: availableHeight - infoArea.height - socialGap,
-                }
-              : {
-                  x: socialMargin,
-                  y: socialMargin,
-                  width: availableWidth,
-                  height: availableHeight - infoArea.height - socialGap,
-                };
+      const width = 1600,
+        height = 900;
+      const fromPercentRect = (rect: SocialRect) => ({
+        x: (rect.x / 100) * width,
+        y: (rect.y / 100) * height,
+        width: (rect.width / 100) * width,
+        height: (rect.height / 100) * height,
+      });
+      const imageArea = fromPercentRect(socialImageRect);
+      const infoArea = fromPercentRect(socialInfoRect);
+      const sideLayout = infoArea.height >= infoArea.width;
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+
+      // Use the screenshot as a subdued background only where custom spacing creates empty space.
+      const backgroundScale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+      const backgroundWidth = image.naturalWidth * backgroundScale,
+        backgroundHeight = image.naturalHeight * backgroundScale;
+      context.save();
+      context.filter = 'blur(28px) brightness(0.55)';
+      context.drawImage(
+        image,
+        (width - backgroundWidth) / 2 - 20,
+        (height - backgroundHeight) / 2 - 20,
+        backgroundWidth + 40,
+        backgroundHeight + 40,
+      );
+      context.restore();
+      context.fillStyle = 'rgba(5, 5, 9, .42)';
+      context.fillRect(0, 0, width, height);
       const imageScale = Math.min(
         imageArea.width / image.naturalWidth,
         imageArea.height / image.naturalHeight,
@@ -574,23 +756,21 @@
       const foregroundWidth = image.naturalWidth * imageScale,
         foregroundHeight = image.naturalHeight * imageScale,
         foregroundX = imageArea.x + (imageArea.width - foregroundWidth) / 2,
-        foregroundY = imageArea.y + (imageArea.height - foregroundHeight) / 2;
+        foregroundY = imageArea.y + (imageArea.height - foregroundHeight) / 2,
+        frameX = foregroundX,
+        frameY = foregroundY,
+        frameWidth = foregroundWidth,
+        frameHeight = foregroundHeight;
       context.save();
       context.shadowColor = 'rgba(0,0,0,.68)';
       context.shadowBlur = 34;
       context.fillStyle = '#08070b';
       context.beginPath();
-      context.roundRect(
-        foregroundX - 5,
-        foregroundY - 5,
-        foregroundWidth + 10,
-        foregroundHeight + 10,
-        18,
-      );
+      context.roundRect(frameX - 5, frameY - 5, frameWidth + 10, frameHeight + 10, 18);
       context.fill();
       context.shadowBlur = 0;
       context.beginPath();
-      context.roundRect(foregroundX, foregroundY, foregroundWidth, foregroundHeight, 14);
+      context.roundRect(frameX, frameY, frameWidth, frameHeight, 14);
       context.clip();
       context.drawImage(image, foregroundX, foregroundY, foregroundWidth, foregroundHeight);
       context.restore();
@@ -599,33 +779,42 @@
           boxY = infoArea.y,
           boxWidth = infoArea.width,
           boxHeight = infoArea.height;
+        const referenceWidth = sideLayout ? width * 0.28 : width * 0.98;
+        const referenceHeight = sideLayout ? height * 0.96 : height * 0.26;
+        const panelScale = Math.max(
+          0.5,
+          Math.min(1.35, boxWidth / referenceWidth, boxHeight / referenceHeight),
+        );
+        const scaled = (value: number) => value * panelScale;
+        const fontScaled = (value: number) => scaled(value) * (socialFontSize / 100);
         context.shadowColor = palette.glow;
-        context.shadowBlur = 32;
+        context.shadowBlur = scaled(32);
         context.fillStyle = palette.panel;
         context.beginPath();
-        context.roundRect(boxX, boxY, boxWidth, boxHeight, 24);
+        context.roundRect(boxX, boxY, boxWidth, boxHeight, scaled(24));
         context.fill();
         context.shadowBlur = 0;
         context.fillStyle = palette.accent;
-        context.fillRect(boxX, boxY, 9, boxHeight);
+        context.fillRect(boxX, boxY, scaled(9), boxHeight);
         context.save();
         context.beginPath();
-        context.roundRect(boxX, boxY, boxWidth, boxHeight, 24);
+        context.roundRect(boxX, boxY, boxWidth, boxHeight, scaled(24));
         context.clip();
-        let textY = boxY + (sideLayout ? 72 : 50);
+        const textX = boxX + fontScaled(42);
+        let textY = boxY + fontScaled(sideLayout ? 72 : 50);
         if (socialFields.title) {
           const titleSize = fitText(
             context,
             game.title,
-            boxWidth - 82,
-            sideLayout ? 46 : 42,
-            sideLayout ? 24 : 25,
+            boxWidth - fontScaled(82),
+            fontScaled(sideLayout ? 46 : 42),
+            fontScaled(sideLayout ? 24 : 25),
             800,
           );
-          context.font = `800 ${titleSize}px "Yu Gothic UI", Meiryo, sans-serif`;
+          context.font = `800 ${titleSize}px ${socialFontFamily()}`;
           context.fillStyle = '#fff';
-          context.fillText(game.title, boxX + 42, textY);
-          textY += titleSize + (sideLayout ? 36 : 17);
+          context.fillText(game.title, textX, textY);
+          textY += titleSize + fontScaled(sideLayout ? 36 : 17);
         }
         const facts: string[] = [];
         if (socialFields.brand && game.brand) facts.push(game.brand);
@@ -637,55 +826,72 @@
           facts.push(`最終プレイ: ${local(game.last_played)}`);
         context.fillStyle = '#eeeaf5';
         if (sideLayout) {
-          context.font = '600 27px "Yu Gothic UI", Meiryo, sans-serif';
           for (const fact of facts) {
-            const factSize = fitText(context, fact, boxWidth - 82, 27, 19, 600);
-            context.font = `600 ${factSize}px "Yu Gothic UI", Meiryo, sans-serif`;
-            context.fillText(fact, boxX + 42, textY);
-            textY += 46;
+            const factSize = fitText(
+              context,
+              fact,
+              boxWidth - fontScaled(82),
+              fontScaled(27),
+              fontScaled(19),
+              600,
+            );
+            context.font = `600 ${factSize}px ${socialFontFamily()}`;
+            context.fillText(fact, textX, textY);
+            textY += fontScaled(46);
           }
         } else {
           const factLine = facts.join('  •  ');
           if (factLine) {
-            const factSize = fitText(context, factLine, boxWidth - 90, 25, 18, 600);
-            context.font = `600 ${factSize}px "Yu Gothic UI", Meiryo, sans-serif`;
-            context.fillText(factLine, boxX + 42, textY);
-            textY += 37;
+            const factSize = fitText(
+              context,
+              factLine,
+              boxWidth - fontScaled(90),
+              fontScaled(25),
+              fontScaled(18),
+              600,
+            );
+            context.font = `600 ${factSize}px ${socialFontFamily()}`;
+            context.fillText(factLine, textX, textY);
+            textY += fontScaled(37);
           }
         }
         if (socialFields.timestamp && selectedPoints.length) {
           context.fillStyle = palette.accent;
-          const reservedBottom = socialFields.capturedAt ? 55 : 22;
-          const availablePointHeight = Math.max(30, boxY + boxHeight - reservedBottom - textY);
-          let pointSize = sideLayout ? 23 : 21;
+          const reservedBottom = fontScaled(socialFields.capturedAt ? 55 : 22);
+          const availablePointHeight = Math.max(
+            fontScaled(30),
+            boxY + boxHeight - reservedBottom - textY,
+          );
+          let pointSize = fontScaled(sideLayout ? 23 : 21);
+          const minimumPointSize = fontScaled(16);
           let wrappedPoints: string[][] = [];
-          while (pointSize >= 16) {
-            context.font = `700 ${pointSize}px "Yu Gothic UI", Meiryo, sans-serif`;
+          while (pointSize >= minimumPointSize) {
+            context.font = `700 ${pointSize}px ${socialFontFamily()}`;
             wrappedPoints = selectedPoints.map((point) =>
-              wrapCanvasText(context, pointText(point), boxWidth - 84),
+              wrapCanvasText(context, pointText(point), boxWidth - fontScaled(84)),
             );
             const lineCount = wrappedPoints.reduce((total, lines) => total + lines.length, 0);
-            if (lineCount * (pointSize + 6) <= availablePointHeight) break;
+            if (lineCount * (pointSize + fontScaled(6)) <= availablePointHeight) break;
             pointSize -= 1;
           }
-          pointSize = Math.max(16, pointSize);
-          context.font = `700 ${pointSize}px "Yu Gothic UI", Meiryo, sans-serif`;
+          pointSize = Math.max(minimumPointSize, pointSize);
+          context.font = `700 ${pointSize}px ${socialFontFamily()}`;
           for (const lines of wrappedPoints) {
             for (const line of lines) {
-              context.fillText(line, boxX + 42, textY);
-              textY += pointSize + 6;
+              context.fillText(line, textX, textY);
+              textY += pointSize + fontScaled(6);
             }
-            textY += sideLayout ? 5 : 2;
+            textY += fontScaled(sideLayout ? 5 : 2);
           }
         }
         if (socialFields.capturedAt) {
           context.fillStyle = 'rgba(255,255,255,.72)';
-          context.font = '500 22px "Yu Gothic UI", Meiryo, sans-serif';
+          context.font = `500 ${fontScaled(22)}px ${socialFontFamily()}`;
           context.textAlign = 'right';
           context.fillText(
             `撮影: ${local(shot.captured_at)}`,
-            boxX + boxWidth - 35,
-            boxY + boxHeight - 28,
+            boxX + boxWidth - fontScaled(35),
+            boxY + boxHeight - fontScaled(28),
           );
           context.textAlign = 'left';
         }
@@ -966,8 +1172,10 @@
     <div
       class="panel social-image-creator"
       role="dialog"
+      tabindex="-1"
       aria-modal="true"
       aria-labelledby="social-image-title"
+      onpointerdown={() => (socialSelectedElement = null)}
     >
       <div class="panel-heading">
         <div>
@@ -1009,35 +1217,68 @@
             </div>
             <div class="social-layout-controls">
               <label
-                >情報パネルの位置<select bind:value={socialLayout}
+                >配置プリセット<select
+                  value={socialLayout}
+                  onchange={(event) =>
+                    applySocialPreset(
+                      (event.currentTarget as HTMLSelectElement).value as SocialPreset,
+                    )}
                   ><option value="auto">自動</option><option value="left">左</option><option
                     value="right">右</option
-                  ><option value="top">上</option><option value="bottom">下</option></select
+                  ><option value="top">上</option><option value="bottom">下</option><option
+                    value="custom"
+                    disabled>カスタム</option
+                  ></select
                 ></label
               >
+              <p class="social-editor-help">
+                プレビュー内の要素をドラッグして移動できます。四隅や辺をドラッグすると大きさを変更できます。
+              </p>
+              <div class="social-font-picker">
+                <label
+                  >フォントを検索<input
+                    bind:value={socialFontSearch}
+                    placeholder="名前で検索"
+                  /></label
+                >
+                <label class="social-font-select"
+                  >フォント<select
+                    value={socialFont}
+                    size="7"
+                    onchange={(event) =>
+                      (socialFont = (event.currentTarget as HTMLSelectElement).value)}
+                    >{#each socialFilteredFonts as font}<option value={font}>{font}</option
+                      >{/each}</select
+                  ></label
+                >
+                <button
+                  type="button"
+                  disabled={socialFont === defaultSocialFont}
+                  onclick={() => (socialFont = defaultSocialFont)}>標準フォントに戻す</button
+                >
+              </div>
               <label
-                ><span>情報パネルのサイズ <output>{socialPanelSize}%</output></span><input
+                ><span>フォントサイズ <output>{socialFontSize}%</output></span><input
                   type="range"
-                  min="18"
-                  max="45"
+                  min="60"
+                  max="130"
+                  step="5"
+                  bind:value={socialFontSize}
+                /></label
+              >
+              <label
+                ><span
+                  >スクショと情報パネルの比率 <output
+                    >{socialImageRatio}:{100 - socialImageRatio}</output
+                  ></span
+                ><input
+                  type="range"
+                  min="45"
+                  max="82"
                   step="1"
-                  bind:value={socialPanelSize}
-                /></label
-              ><label
-                ><span>外側の余白 <output>{socialMargin}px</output></span><input
-                  type="range"
-                  min="0"
-                  max="80"
-                  step="4"
-                  bind:value={socialMargin}
-                /></label
-              ><label
-                ><span>画像との間隔 <output>{socialGap}px</output></span><input
-                  type="range"
-                  min="0"
-                  max="80"
-                  step="4"
-                  bind:value={socialGap}
+                  value={socialImageRatio}
+                  oninput={(event) =>
+                    applySocialRatio(Number((event.currentTarget as HTMLInputElement).value))}
                 /></label
               >
               <button type="button" onclick={resetSocialLayout}>レイアウトを初期値に戻す</button>
@@ -1121,12 +1362,40 @@
           </p>
         </div>
         <div class="social-preview-area">
-          {#if screenshots.length}<canvas
-              bind:this={socialCanvas}
-              width="1600"
-              height="900"
-              aria-label="生成画像のプレビュー"
-            ></canvas>{:else}<div class="social-empty-preview">
+          {#if screenshots.length}<div class="social-canvas-editor">
+              <canvas
+                bind:this={socialCanvas}
+                width="1600"
+                height="900"
+                aria-label="生成画像のプレビュー"
+              ></canvas>
+              {#each ['image', 'info'] as element}
+                {@const editableElement = element as SocialElement}
+                {@const rect = editableElement === 'image' ? socialImageEditorRect : socialInfoRect}
+                <div
+                  class="social-edit-region"
+                  class:selected={socialSelectedElement === editableElement}
+                  class:info={editableElement === 'info'}
+                  style={`left:${rect.x}%;top:${rect.y}%;width:${rect.width}%;height:${rect.height}%`}
+                >
+                  <button
+                    type="button"
+                    class="social-edit-move"
+                    aria-label={`${editableElement === 'image' ? 'スクリーンショット' : '情報パネル'}を移動`}
+                    onpointerdown={(event) => beginSocialTransform(event, editableElement)}
+                  ></button>
+                  {#each ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as handle}
+                    <button
+                      type="button"
+                      class="social-resize-handle {handle}"
+                      aria-label={`${editableElement === 'image' ? 'スクリーンショット' : '情報パネル'}のサイズを変更`}
+                      onpointerdown={(event) =>
+                        beginSocialTransform(event, editableElement, handle as ResizeHandle)}
+                    ></button>
+                  {/each}
+                </div>
+              {/each}
+            </div>{:else}<div class="social-empty-preview">
               <strong>プレビューできる画像がありません</strong>
               <span>スクリーンショットを1枚以上撮影すると、ここに生成結果が表示されます。</span>
             </div>{/if}
