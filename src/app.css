@@ -798,6 +798,9 @@ small {
 .update-setting p {
   margin: 0;
 }
+.update-setting .update-auto-check {
+  margin: 0;
+}
 .update-setting-actions {
   display: flex;
   gap: 0.65rem;

@@ -251,9 +251,6 @@
     ><input type="checkbox" bind:checked={settings.autostart} /> Windowsログイン時に自動起動</label
   ><label class="check"
     ><input type="checkbox" bind:checked={settings.close_to_tray} /> ウィンドウを閉じたらトレイへ格納</label
-  ><label class="check"
-    ><input type="checkbox" bind:checked={settings.auto_check_updates} />
-    起動時に新しいバージョンを自動確認する</label
   ><label
     >foreground照合間隔（秒）<input
       type="number"
@@ -308,6 +305,10 @@
         >
       {/if}
     </div>
+    <label class="check update-auto-check">
+      <input type="checkbox" bind:checked={settings.auto_check_updates} />
+      起動時に更新を自動確認して通知する
+    </label>
     {#if updateStatus}<p>{updateStatus}</p>{/if}
     {#if installingUpdate}
       <p>{updateProgressText()}</p>
