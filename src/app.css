@@ -1616,7 +1616,7 @@ button.theme-blue,
   border: 1px solid #ffffff20;
   border-radius: 10px;
   background: #09080c;
-  box-shadow: 0 12px 40px #0007;
+  box-shadow: 0 4px 10px #0005;
   touch-action: none;
   user-select: none;
 }
