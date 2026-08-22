@@ -81,6 +81,7 @@ export const api = {
   refreshMetadata: (gameId: number) => invoke<void>('refresh_game_metadata', { gameId }),
   settings: () => invoke<Settings>('get_settings'),
   updateSettings: (settings: Settings) => invoke<void>('update_settings', { settings }),
+  skipUpdateVersion: (version: string) => invoke<void>('skip_update_version', { version }),
   validateScreenshotHotkey: (hotkey: string) =>
     invoke<void>('validate_screenshot_hotkey', { hotkey }),
   suspendScreenshotHotkey: () => invoke<void>('suspend_screenshot_hotkey'),

@@ -76,6 +76,8 @@ export interface Metadata {
 export type Theme = 'dark' | 'light' | 'pink' | 'blue';
 export interface Settings {
   autostart: boolean;
+  auto_check_updates: boolean;
+  skipped_update_version: string | null;
   reconciliation_seconds: number;
   close_to_tray: boolean;
   theme: Theme;

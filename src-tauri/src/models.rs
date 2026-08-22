@@ -79,6 +79,8 @@ pub struct UpdateGameInput {
 #[serde(default)]
 pub struct AppSettings {
     pub autostart: bool,
+    pub auto_check_updates: bool,
+    pub skipped_update_version: Option<String>,
     pub reconciliation_seconds: u64,
     pub close_to_tray: bool,
     pub theme: String,
@@ -88,11 +90,28 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             autostart: false,
+            auto_check_updates: true,
+            skipped_update_version: None,
             reconciliation_seconds: 3,
             close_to_tray: true,
             theme: "dark".into(),
             screenshot_hotkey: String::new(),
         }
+    }
+}
+#[cfg(test)]
+mod settings_tests {
+    use super::AppSettings;
+
+    #[test]
+    fn older_settings_enable_update_checks_and_have_no_skipped_version() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{"autostart":false,"reconciliation_seconds":3,"close_to_tray":true,"theme":"dark","screenshot_hotkey":""}"#,
+        )
+        .unwrap();
+
+        assert!(settings.auto_check_updates);
+        assert_eq!(settings.skipped_update_version, None);
     }
 }
 #[derive(Debug, Clone, Serialize)]

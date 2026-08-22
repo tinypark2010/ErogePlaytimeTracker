@@ -319,7 +319,7 @@ pub fn get_settings(state: State<AppState>) -> Cmd<AppSettings> {
 pub fn update_settings(
     app: tauri::AppHandle,
     state: State<AppState>,
-    settings: AppSettings,
+    mut settings: AppSettings,
 ) -> Cmd<()> {
     if !(2..=30).contains(&settings.reconciliation_seconds) {
         return Err("照合間隔は2〜30秒にしてください".into());
@@ -342,6 +342,18 @@ pub fn update_settings(
         .screenshot_service
         .set_hotkey(settings.screenshot_hotkey.clone())
         .map_err(err)?;
+    // A skip can be saved by the update prompt while the settings screen is open.
+    // Preserve the latest value instead of overwriting it with the screen's snapshot.
+    settings.skipped_update_version = state.settings().skipped_update_version;
+    state
+        .db
+        .set_setting("app", &serde_json::to_string(&settings).map_err(err)?)
+        .map_err(err)
+}
+#[tauri::command]
+pub fn skip_update_version(state: State<AppState>, version: String) -> Cmd<()> {
+    let mut settings = state.settings();
+    settings.skipped_update_version = Some(version);
     state
         .db
         .set_setting("app", &serde_json::to_string(&settings).map_err(err)?)

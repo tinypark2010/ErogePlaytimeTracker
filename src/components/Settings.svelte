@@ -1,12 +1,17 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import { getVersion } from '@tauri-apps/api/app';
+  import { relaunch } from '@tauri-apps/plugin-process';
+  import { check } from '@tauri-apps/plugin-updater';
   import { api } from '../lib/api';
   import type { Settings, Theme } from '../lib/types';
   export let ontheme: (theme: Theme) => void = () => {};
   export let ondirty: (dirty: boolean) => void = () => {};
-  export let onsaved: (theme: Theme) => void = () => {};
+  export let onsaved: (settings: Settings) => void = () => {};
   let settings: Settings = {
       autostart: false,
+      auto_check_updates: true,
+      skipped_update_version: null,
       reconciliation_seconds: 3,
       close_to_tray: true,
       theme: 'dark',
@@ -17,7 +22,17 @@
     hotkeyError = '',
     recordingHotkey = false,
     checkingHotkey = false,
-    hotkeyStatus = '';
+    hotkeyStatus = '',
+    currentVersion = '',
+    updateStatus = '',
+    updateError = '',
+    checkingUpdate = false,
+    installingUpdate = false,
+    updateDownloaded = 0,
+    updateContentLength: number | undefined;
+  let availableUpdate: Awaited<ReturnType<typeof check>> = null;
+  let previewUpdateAvailable = false;
+  $: availableVersion = availableUpdate?.version ?? '0.1.6';
   let savedSettings: Settings | null = null,
     lastDirty = false;
   $: {
@@ -31,7 +46,7 @@
   }
   onMount(async () => {
     try {
-      settings = await api.settings();
+      [settings, currentVersion] = await Promise.all([api.settings(), getVersion()]);
       savedSettings = { ...settings };
       ontheme(settings.theme);
       if (settings.screenshot_hotkey) {
@@ -58,8 +73,9 @@
   async function save() {
     try {
       await api.updateSettings(settings);
+      settings = await api.settings();
       savedSettings = { ...settings };
-      onsaved(settings.theme);
+      onsaved(settings);
       ondirty(false);
       message = '保存しました';
       error = '';
@@ -134,6 +150,59 @@
     error = '';
     hotkeyError = '';
   }
+  async function checkForUpdate() {
+    if (checkingUpdate || installingUpdate) return;
+    checkingUpdate = true;
+    availableUpdate = null;
+    previewUpdateAvailable = false;
+    updateError = '';
+    updateStatus = '更新を確認しています…';
+    try {
+      if (import.meta.env.DEV && import.meta.env.VITE_MOCK_UPDATE === 'true') {
+        previewUpdateAvailable = true;
+        updateStatus = `バージョン ${availableVersion} を利用できます。`;
+        return;
+      }
+      availableUpdate = await check();
+      updateStatus = availableUpdate
+        ? `バージョン ${availableUpdate.version} を利用できます。`
+        : '現在のバージョンが最新です。';
+    } catch (e) {
+      updateStatus = '';
+      updateError = `更新を確認できませんでした: ${String(e)}`;
+    } finally {
+      checkingUpdate = false;
+    }
+  }
+  async function installAvailableUpdate() {
+    if (previewUpdateAvailable) {
+      updateError = 'モック表示のため、実際の更新は行いません。';
+      return;
+    }
+    if (!availableUpdate || installingUpdate) return;
+    installingUpdate = true;
+    updateError = '';
+    updateDownloaded = 0;
+    updateContentLength = undefined;
+    try {
+      await availableUpdate.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          updateContentLength = event.data.contentLength ?? undefined;
+        } else if (event.event === 'Progress') {
+          updateDownloaded += event.data.chunkLength;
+        }
+      });
+      await relaunch();
+    } catch (e) {
+      updateError = `更新できませんでした: ${String(e)}`;
+      installingUpdate = false;
+    }
+  }
+  function updateProgressText() {
+    if (!updateContentLength) return '更新をダウンロードしています…';
+    const percent = Math.min(100, Math.round((updateDownloaded / updateContentLength) * 100));
+    return `更新をダウンロードしています… ${percent}%`;
+  }
 </script>
 
 <svelte:window onkeydown={recordHotkey} />
@@ -182,6 +251,9 @@
     ><input type="checkbox" bind:checked={settings.autostart} /> Windowsログイン時に自動起動</label
   ><label class="check"
     ><input type="checkbox" bind:checked={settings.close_to_tray} /> ウィンドウを閉じたらトレイへ格納</label
+  ><label class="check"
+    ><input type="checkbox" bind:checked={settings.auto_check_updates} />
+    起動時に新しいバージョンを自動確認する</label
   ><label
     >foreground照合間隔（秒）<input
       type="number"
@@ -212,6 +284,38 @@
     </p>
     {#if hotkeyStatus}<p class="hotkey-status">{hotkeyStatus}</p>{/if}
     {#if hotkeyError}<p class="error">{hotkeyError}</p>{/if}
+  </div>
+  <div class="update-setting">
+    <div>
+      <span class="setting-label">アプリの更新</span>
+      <p class="hint">現在のバージョン: {currentVersion || '確認中…'}</p>
+      {#if settings.skipped_update_version}
+        <p class="hint">
+          バージョン {settings.skipped_update_version} の自動通知はスキップ中です。
+        </p>
+      {/if}
+    </div>
+    <div class="update-setting-actions">
+      <button type="button" disabled={checkingUpdate || installingUpdate} onclick={checkForUpdate}>
+        {checkingUpdate ? '確認中…' : '更新を確認'}
+      </button>
+      {#if availableUpdate || previewUpdateAvailable}
+        <button
+          type="button"
+          class="primary"
+          disabled={installingUpdate}
+          onclick={installAvailableUpdate}>{installingUpdate ? '更新中…' : '更新して再起動'}</button
+        >
+      {/if}
+    </div>
+    {#if updateStatus}<p>{updateStatus}</p>{/if}
+    {#if installingUpdate}
+      <p>{updateProgressText()}</p>
+      {#if updateContentLength}
+        <progress value={updateDownloaded} max={updateContentLength}></progress>
+      {/if}
+    {/if}
+    {#if updateError}<p class="error">{updateError}</p>{/if}
   </div>
   <button class="primary" disabled={recordingHotkey || checkingHotkey} onclick={save}>保存</button
   >{#if message}<p>

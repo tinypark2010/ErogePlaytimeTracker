@@ -171,6 +171,7 @@ pub fn run() {
             commands::refresh_game_metadata,
             commands::get_settings,
             commands::update_settings,
+            commands::skip_update_version,
             commands::validate_screenshot_hotkey,
             commands::suspend_screenshot_hotkey,
             commands::resume_screenshot_hotkey,

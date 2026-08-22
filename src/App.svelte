@@ -15,6 +15,9 @@
     refresh = 0,
     status: TrackingStatus = { games: [] },
     savedTheme: Theme = 'dark',
+    autoCheckUpdates = true,
+    skippedUpdateVersion: string | null = null,
+    settingsLoaded = false,
     settingsDirty = false,
     pendingPage: Page | null = null,
     pendingReload = false;
@@ -49,7 +52,10 @@
   onMount(() => {
     api.settings().then((v) => {
       savedTheme = v.theme;
+      autoCheckUpdates = v.auto_check_updates;
+      skippedUpdateVersion = v.skipped_update_version;
       applyTheme(v.theme);
+      settingsLoaded = true;
     });
     api.status().then(updateStatus);
     const timer = setInterval(() => api.status().then(updateStatus), 3000);
@@ -99,10 +105,20 @@
     />{:else}<Settings
       ontheme={applyTheme}
       ondirty={(dirty) => (settingsDirty = dirty)}
-      onsaved={(theme) => (savedTheme = theme)}
+      onsaved={(settings) => {
+        savedTheme = settings.theme;
+        autoCheckUpdates = settings.auto_check_updates;
+        skippedUpdateVersion = settings.skipped_update_version;
+      }}
     />{/if}
 </main>
-<UpdatePrompt />
+{#if settingsLoaded}
+  <UpdatePrompt
+    autoCheck={autoCheckUpdates}
+    skippedVersion={skippedUpdateVersion}
+    onskip={(version) => (skippedUpdateVersion = version)}
+  />
+{/if}
 {#if pendingPage}<div class="modal confirm-modal">
     <div
       class="panel confirm-box"
