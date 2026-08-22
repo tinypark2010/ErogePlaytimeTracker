@@ -176,7 +176,8 @@
   }
   async function installAvailableUpdate() {
     if (previewUpdateAvailable) {
-      updateError = 'モック表示のため、実際の更新は行いません。';
+      updateError = '';
+      updateStatus = 'モック表示のため、実際の更新は行いません。';
       return;
     }
     if (!availableUpdate || installingUpdate) return;
@@ -305,18 +306,18 @@
         >
       {/if}
       {#if updateStatus}<p class="update-check-status">{updateStatus}</p>{/if}
+      {#if updateError}<p class="error update-check-status">{updateError}</p>{/if}
     </div>
-    <label class="check update-auto-check">
-      <input type="checkbox" bind:checked={settings.auto_check_updates} />
-      起動時に更新を自動確認して通知する
-    </label>
     {#if installingUpdate}
       <p>{updateProgressText()}</p>
       {#if updateContentLength}
         <progress value={updateDownloaded} max={updateContentLength}></progress>
       {/if}
     {/if}
-    {#if updateError}<p class="error">{updateError}</p>{/if}
+    <label class="check update-auto-check">
+      <input type="checkbox" bind:checked={settings.auto_check_updates} />
+      起動時に更新を自動確認して通知する
+    </label>
   </div>
   <button class="primary" disabled={recordingHotkey || checkingHotkey} onclick={save}>保存</button
   >{#if message}<p>

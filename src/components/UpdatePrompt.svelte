@@ -15,6 +15,7 @@
   let downloaded = 0;
   let contentLength: number | undefined;
   let error = '';
+  let notice = '';
 
   $: version = update?.version ?? '0.1.6';
 
@@ -48,7 +49,8 @@
 
   async function install() {
     if (preview) {
-      error = 'モック表示のため、実際の更新は行いません。';
+      error = '';
+      notice = 'モック表示のため、実際の更新は行いません。';
       return;
     }
     if (!update || installing) return;
@@ -100,6 +102,7 @@
         {/if}
       {/if}
       {#if error}<p class="error">{error}</p>{/if}
+      {#if notice}<p>{notice}</p>{/if}
       <div class="confirm-actions">
         <button type="button" disabled={installing} onclick={() => (dismissed = true)}>後で</button>
         <button type="button" disabled={installing} onclick={skip}>このバージョンをスキップ</button>
