@@ -109,6 +109,7 @@ npm run build
 
 ## Testing conventions
 
+- testは現行のbehavior・invariant、または明示的に維持するmigration/backward compatibility処理を対象にする。fieldやfeatureを削除した際に、その不在だけをassertする恒久testを追加・維持しない。削除の完全性は変更時のrepository search、diff、build/checkで確認し、対応test、fixture、旧identifierも同時に整理する。明示的なcompatibility codeを残す場合だけ、そのcontractを検証するtestを維持する。
 - frontend unit tests は対象 helper と同じ `src/lib/*.test.ts` に置き、Vitest を使う。現在 UI/E2E test harness はない。
 - Rust unit tests は各 module 内の `#[cfg(test)]` に置く。DB tests は `Database::memory()`、metadata parser は network を使わない HTML fixture を使う。
 - DB/schema/集計変更では migration、interval validation、session-minus-background、legacy focus mirror をテストする。tracking変更では launcher重複、複数game、windowなし/foreground/background transition を `tracking/state.rs` の pure tests で覆う。
