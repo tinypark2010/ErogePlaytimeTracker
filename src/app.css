@@ -2109,6 +2109,16 @@ button.primary:disabled:hover {
   margin: 0 0 0.25rem;
   font-size: 16px;
 }
+.timestamp-name-input {
+  width: min(100%, 520px);
+  margin-bottom: 0.25rem;
+}
+.timestamp-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
 .timestamp-times {
   display: flex;
   gap: 2rem;
@@ -2141,7 +2151,7 @@ button.primary:disabled:hover {
   .timestamp-item {
     grid-template-columns: 18px minmax(0, 1fr);
   }
-  .timestamp-item > button {
+  .timestamp-item-actions {
     grid-column: 2;
     justify-self: start;
   }

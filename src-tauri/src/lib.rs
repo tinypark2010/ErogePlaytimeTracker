@@ -162,6 +162,7 @@ pub fn run() {
             commands::delete_background_interval,
             commands::list_game_timestamps,
             commands::create_game_timestamp,
+            commands::update_game_timestamp_name,
             commands::delete_game_timestamp,
             commands::fetch_erogamescape_metadata,
             commands::refresh_game_metadata,

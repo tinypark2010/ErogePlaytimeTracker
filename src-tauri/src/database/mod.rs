@@ -502,13 +502,7 @@ impl Database {
         Ok(())
     }
     pub fn create_timestamp(&self, game: i64, name: &str, marked_at: &str) -> Result<i64> {
-        let name = name.trim();
-        if name.is_empty() {
-            bail!("タイムスタンプ名を入力してください")
-        }
-        if name.chars().count() > 100 {
-            bail!("タイムスタンプ名は100文字以内にしてください")
-        }
+        let name = validate_timestamp_name(name)?;
         DateTime::parse_from_rfc3339(marked_at).context("記録日時が不正です")?;
         let c = self.0.lock();
         let n = now();
@@ -517,6 +511,17 @@ impl Database {
             params![game, name, marked_at, n],
         )?;
         Ok(c.last_insert_rowid())
+    }
+    pub fn update_timestamp_name(&self, id: i64, name: &str) -> Result<()> {
+        let name = validate_timestamp_name(name)?;
+        let changed = self.0.lock().execute(
+            "UPDATE game_timestamps SET name=? WHERE id=?",
+            params![name, id],
+        )?;
+        if changed == 0 {
+            bail!("プレイ記録ポイントが見つかりません")
+        }
+        Ok(())
     }
     pub fn timestamps(&self, game: i64) -> Result<Vec<GameTimestamp>> {
         let c = self.0.lock();
@@ -756,6 +761,16 @@ fn insert_executable(c: &Connection, game: i64, path: &str) -> Result<()> {
     )?;
     Ok(())
 }
+fn validate_timestamp_name(name: &str) -> Result<&str> {
+    let name = name.trim();
+    if name.is_empty() {
+        bail!("プレイ記録ポイントの名称を入力してください")
+    }
+    if name.chars().count() > 100 {
+        bail!("プレイ記録ポイントの名称は100文字以内にしてください")
+    }
+    Ok(name)
+}
 pub fn normalize_path(path: &str) -> String {
     let p = path.trim().trim_matches('"').replace('/', "\\");
     p.strip_prefix("\\\\?\\").unwrap_or(&p).to_lowercase()
@@ -921,6 +936,23 @@ mod tests {
         assert_eq!(points[1].since_previous_seconds, 2700);
         d.delete_timestamp(second).unwrap();
         assert_eq!(d.timestamps(g).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn timestamp_name_update_is_trimmed_and_validated() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let point = d
+            .create_timestamp(g, "共通ルート終了", "2026-01-01T00:30:00Z")
+            .unwrap();
+
+        d.update_timestamp_name(point, "  真ルート終了  ").unwrap();
+        let updated = &d.timestamps(g).unwrap()[0];
+        assert_eq!(updated.name, "真ルート終了");
+        assert_eq!(updated.marked_at, "2026-01-01T00:30:00Z");
+
+        assert!(d.update_timestamp_name(point, "   ").is_err());
+        assert!(d.update_timestamp_name(i64::MAX, "存在しない記録").is_err());
     }
 
     #[test]

@@ -56,6 +56,9 @@
     sessionStart = '',
     sessionEnd = '',
     sessionFormDirty = false;
+  let editingTimestampId: number | null = null,
+    savingTimestampId: number | null = null,
+    editingTimestampName = '';
   let socialOpen = false,
     socialCanvas: HTMLCanvasElement,
     socialScreenshotId = 0,
@@ -393,6 +396,34 @@
       showToast(`記録できませんでした: ${String(e)}`, true);
     } finally {
       creatingTimestamp = false;
+    }
+  }
+  function beginTimestampEdit(point: GameTimestamp) {
+    editingTimestampId = point.id;
+    editingTimestampName = point.name;
+  }
+  function cancelTimestampEdit() {
+    editingTimestampId = null;
+    editingTimestampName = '';
+  }
+  async function saveTimestampName(point: GameTimestamp) {
+    const name = editingTimestampName.trim();
+    if (!name) return showToast('プレイ記録ポイントの名称を入力してください', true);
+    if (name === point.name) {
+      cancelTimestampEdit();
+      return;
+    }
+    if (savingTimestampId !== null) return;
+    savingTimestampId = point.id;
+    try {
+      await api.updateTimestampName(point.id, name);
+      await load();
+      cancelTimestampEdit();
+      showToast('プレイ記録ポイントの名称を変更しました');
+    } catch (e) {
+      showToast(`名称を変更できませんでした: ${String(e)}`, true);
+    } finally {
+      savingTimestampId = null;
     }
   }
   async function deleteTimestamp(id: number) {
@@ -1093,7 +1124,16 @@
         {#each timestamps as point, index}<article class="timestamp-item">
             <div class="timestamp-marker" aria-hidden="true"></div>
             <div class="timestamp-content">
-              <h3>{point.name}</h3>
+              {#if editingTimestampId === point.id}<input
+                  class="timestamp-name-input"
+                  aria-label="プレイ記録ポイントの名称"
+                  maxlength="100"
+                  bind:value={editingTimestampName}
+                  onkeydown={(event) => {
+                    if (event.key === 'Enter') saveTimestampName(point);
+                    if (event.key === 'Escape') cancelTimestampEdit();
+                  }}
+                />{:else}<h3>{point.name}</h3>{/if}
               <small>{local(point.marked_at)}</small>
               <div class="timestamp-times">
                 <span
@@ -1106,7 +1146,18 @@
                 >
               </div>
             </div>
-            <button onclick={() => deleteTimestamp(point.id)}>削除</button>
+            <div class="timestamp-item-actions">
+              {#if editingTimestampId === point.id}<button
+                  class="primary"
+                  disabled={savingTimestampId === point.id || !editingTimestampName.trim()}
+                  onclick={() => saveTimestampName(point)}
+                  >{savingTimestampId === point.id ? '保存中…' : '保存'}</button
+                ><button disabled={savingTimestampId === point.id} onclick={cancelTimestampEdit}
+                  >キャンセル</button
+                >{:else}<button onclick={() => beginTimestampEdit(point)}>編集</button><button
+                  onclick={() => deleteTimestamp(point.id)}>削除</button
+                >{/if}
+            </div>
           </article>{/each}
       </div>
     </section>
