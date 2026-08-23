@@ -689,10 +689,6 @@ small {
   position: relative;
   z-index: 1;
 }
-.detail-actions {
-  margin-bottom: 1.1rem;
-  gap: 0.75rem;
-}
 .panel-heading {
   display: flex;
   align-items: center;
@@ -1228,6 +1224,13 @@ button.primary:disabled:hover {
 .game-info-form .actions {
   margin-top: 0.2rem;
 }
+.game-info-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
 :root[data-theme]:not([data-theme='dark']) .game-info dl > div {
   border-color: #00000014;
 }
@@ -1241,6 +1244,13 @@ button.primary:disabled:hover {
   color: #2465a0;
 }
 @media (max-width: 700px) {
+  .game-info .panel-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .game-info-heading-actions {
+    justify-content: flex-start;
+  }
   .game-info dl > div {
     grid-template-columns: 1fr;
     gap: 0.2rem;
@@ -1961,7 +1971,6 @@ button.primary:disabled:hover {
   align-items: center;
   gap: 0.75rem;
 }
-.session-heading-actions,
 .page-size-control,
 .pagination {
   display: flex;
@@ -1992,8 +2001,7 @@ button.primary:disabled:hover {
   color: #706978;
 }
 @media (max-width: 700px) {
-  .screenshot-heading-actions,
-  .session-heading-actions {
+  .screenshot-heading-actions {
     flex-wrap: wrap;
     justify-content: flex-end;
   }
@@ -2109,6 +2117,16 @@ button.primary:disabled:hover {
   margin: 0 0 0.25rem;
   font-size: 16px;
 }
+.timestamp-name-input {
+  width: min(100%, 520px);
+  margin-bottom: 0.25rem;
+}
+.timestamp-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
 .timestamp-times {
   display: flex;
   gap: 2rem;
@@ -2141,8 +2159,55 @@ button.primary:disabled:hover {
   .timestamp-item {
     grid-template-columns: 18px minmax(0, 1fr);
   }
-  .timestamp-item > button {
+  .timestamp-item-actions {
     grid-column: 2;
     justify-self: start;
+  }
+}
+.danger-zone {
+  border: 1px solid #9d3b49;
+}
+.danger-zone-heading h2 {
+  margin: 0;
+  color: #ff9eac;
+}
+.danger-zone-heading p,
+.danger-zone-item p {
+  margin: 0.35rem 0 0;
+  color: #aaa3b4;
+}
+.danger-zone-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #9d3b4966;
+}
+.danger-zone-item > div {
+  min-width: 0;
+}
+.danger-zone-item > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+:root[data-theme]:not([data-theme='dark']) .danger-zone {
+  border-color: #b84d5c;
+}
+:root[data-theme]:not([data-theme='dark']) .danger-zone-heading h2 {
+  color: #8a2735;
+}
+:root[data-theme]:not([data-theme='dark']) .danger-zone-heading p,
+:root[data-theme]:not([data-theme='dark']) .danger-zone-item p {
+  color: #706978;
+}
+@media (max-width: 700px) {
+  .danger-zone-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .danger-zone-item > button {
+    align-self: flex-start;
   }
 }
