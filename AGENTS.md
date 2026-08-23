@@ -37,7 +37,9 @@ npm run tauri dev
 ## Git and pull request workflow
 
 - Integration branch は `main`。`main` 上でcommitせず、`origin/main`へ直接pushしない。変更前に1 PR/1 concernのtopic branch（`update/...`、`fix/...`、`docs/...`、`ci/...`等）を作る。
-- commit/pushの依頼を受けた時点で`main`にいる場合も、working treeを保持したままtopic branchへ移ってからcommitする。unrelatedな既存変更を混ぜない。
+- 独立した新しい変更タスクでは、編集前にcurrent branchとworking treeを確認する。既存topic branchの継続または明示的なstacked PRでない限り、cleanなworking treeで`origin`をfetchし、local `main`を`origin/main`までfast-forwardし、両者が同じcommitであることを確認してから新しいtopic branchを作る。checkoutされているという理由だけで以前のPR branchを新しい変更のbaseにしない。
+- working treeに既存変更がある場合は、自動的なswitch、pull、stashや、現在のHEADからの無条件なbranch作成を行わない。変更の目的と所有者、現在のHEADが意図したbaseかを確認し、安全に分離できなければ変更を保持したままユーザーへ状況を報告する。dirtyなworking treeは暗黙にstackする理由にならない。
+- commit/pushの依頼を受けた時点で`main`にいる場合も、上記のbase確認を満たしたうえでworking treeを保持したままtopic branchへ移ってからcommitする。unrelatedな既存変更を混ぜない。
 - commitは1機能・1不具合・1保守目的。実装と対応testは同じcommitに含める。prefix、size目安、message形式、stacked PR、merge方法のsource of truthは [docs/development-workflow.md](docs/development-workflow.md)。
 - PR作成を依頼されたら `$create-pr` skillを使用する。通常の実装依頼はcommit/push/PR作成までを暗黙に許可しない。
 - `main`へのPRは1成果だけを扱い、原則5 commits以内・production code追加500行以内。超過や複数変更を分離できない場合は、PR本文に技術的理由を残す。

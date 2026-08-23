@@ -17,7 +17,7 @@ Check `gh --version` and `gh auth status` before creating commits or pushing. If
 
 1. Inspect the current branch, status, base commits, complete diff, and existing unpushed commits. Preserve unrelated and user-authored changes.
 2. Partition the work by outcome. One PR may contain multiple commits only when they form one deliverable. Separate independent outcomes even when they share a prefix.
-3. If currently on `main`, create a topic branch without discarding the working tree. Never commit on or push to `main`.
+3. If currently on `main`, create a topic branch without discarding the working tree, subject to the base and dirty-tree checks in `docs/development-workflow.md`. If currently on another topic branch, confirm the change is a continuation or an intentional stack; do not use that branch as the base for independent work merely because it is checked out. Never commit on or push to `main`.
 4. Before mutating Git state, send a concise commentary update listing the planned PR(s), base/head branches, and commits. Continue without a blocking question when the partition is unambiguous.
 5. Stage explicit paths or hunks; do not use `git add .`. Keep implementation and its corresponding tests in the same commit. Do not rewrite user-authored or already-pushed commits without explicit authorization.
 6. Write messages exactly as required by `docs/development-workflow.md`. A primary change and its tests use the approved `[primary, test]` form; never combine two primary prefixes.
@@ -34,4 +34,4 @@ When independent work must become separate PRs, base each branch on `main` and p
 6. Create the PR non-interactively with explicit `--base`, `--head`, `--title`, and `--body-file`. The title uses the primary prefix only and is at most 72 characters.
 7. Verify the created PR using `gh pr view --json url,title,baseRefName,headRefName,commits,additions,deletions,files`.
 
-Do not merge the PR unless the user separately and explicitly requests it. Finish by reporting the PR URL, base/head, commits, checks, and any policy exception.
+Do not merge the PR unless the user separately and explicitly requests it. After verifying the PR, remain on its head branch for CI or review follow-up; do not switch to `main` or delete branches unless separately requested. Finish by reporting the PR URL, base/head, commits, checks, current branch, and any policy exception.
