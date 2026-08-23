@@ -104,21 +104,12 @@ mod settings_tests {
     #[test]
     fn older_settings_enable_update_checks_and_have_no_skipped_version() {
         let settings: AppSettings = serde_json::from_str(
-            r#"{"autostart":false,"reconciliation_seconds":3,"close_to_tray":true,"theme":"dark","screenshot_hotkey":""}"#,
+            r#"{"autostart":false,"close_to_tray":true,"theme":"dark","screenshot_hotkey":""}"#,
         )
         .unwrap();
 
         assert!(settings.auto_check_updates);
         assert_eq!(settings.skipped_update_version, None);
-    }
-
-    #[test]
-    fn removed_reconciliation_setting_is_not_serialized() {
-        let settings: AppSettings =
-            serde_json::from_str(r#"{"reconciliation_seconds":30}"#).unwrap();
-        let json = serde_json::to_value(settings).unwrap();
-
-        assert!(json.get("reconciliation_seconds").is_none());
     }
 }
 #[derive(Debug, Clone, Serialize)]
