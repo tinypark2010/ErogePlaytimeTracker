@@ -34,6 +34,14 @@ npm run tauri dev
 - updater UI を実更新なしで確認する場合だけ、PowerShell で `$env:VITE_MOCK_UPDATE='true'; npm run tauri dev` を使う。この分岐は `import.meta.env.DEV` 時のみ有効。
 - reconciliation interval の設定変更は running tracker へ hot reload されず、app restart 後に反映される。
 
+## Requirement analysis and change design
+
+- 変更・build taskでは、編集前にユーザーが求めるoutcome、現状と根本原因、守るべきinvariant・compatibility、受入条件を整理する。依頼文をそのまま完全な実装仕様とはみなさず、README、仕様、現行architecture、data flowから本来必要なbehaviorを確認する。単純な機械変更では作業規模に応じて簡潔に行う。
+- ユーザーが挙げた画面・command・fileを自動的に修正範囲と決めない。関連する入口から保存・runtime state・出力までをend-to-endで追い、同じfield、assumption、pattern、shared abstractionをrepository内で検索して、局所症状か共通原因かを判断する。
+- 修正は、意図したoutcomeを完全に満たす最も狭いshared boundaryへ置く。共通原因が別entry pointや隣接機能にも存在する場合は横展開するが、分析で見つけた対応が別のproduct decision、権限、または独立した成果へ広がる場合は無断で実装せず、影響と選択肢をユーザーへ提示する。
+- handoff前に、変更した経路だけでなく、同じ原因を共有する類似箇所、alternate entry point、serialized model/default、compatibility、docs、testへの反映漏れを変更内容に応じて確認する。testは変更行の存在ではなく、意図したinvariantと代表経路を検証する。
+- ユーザーの指摘で局所修正の背後に一般的な失敗パターンが判明した場合は、指摘された例だけをpatchせず、要件と根本原因を再整理して適用範囲を見直す。残存リスクや意図的に対象外とした範囲はhandoffで明示する。
+
 ## Git and pull request workflow
 
 - Integration branch は `main`。`main` 上でcommitせず、`origin/main`へ直接pushしない。変更前に1 PR/1 concernのtopic branch（`update/...`、`fix/...`、`docs/...`、`ci/...`等）を作る。
