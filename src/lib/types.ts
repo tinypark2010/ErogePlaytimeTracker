@@ -78,7 +78,6 @@ export interface Settings {
   autostart: boolean;
   auto_check_updates: boolean;
   skipped_update_version: string | null;
-  reconciliation_seconds: number;
   close_to_tray: boolean;
   theme: Theme;
   screenshot_hotkey: string;

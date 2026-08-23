@@ -62,7 +62,7 @@ durationはDBへ重複保存せず、Session/Intervalのtimestampからquery時�
 
 登録exeをWindows APIで列挙し、1本のゲームに属するprocessが0→1以上でSessionを開始、1以上→0で終了します。そのためlauncher.exeからgame.exeへ移行してもSessionは二重になりません。
 
-foregroundは `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` を主な通知経路とし、`GetForegroundWindow` / `GetWindowThreadProcessId` / process image pathで登録exeと照合します。windowのcreate/destroy/show/hide通知と可視トップレベルwindowの列挙も使用し、Backgroundは「関連processと可視windowが存在するが、そのゲームが最前面ではない状態」として記録します。関連PIDはprocess handleでも監視し、終了通知を受けると直ちに再照合します。通知取りこぼし対策として既定3秒（2〜30秒）のreconciliationも実行します。プレイ時間はSessionの起動時間からBackgroundIntervalの合計を引いて算出します。
+foregroundは `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` を主な通知経路とし、`GetForegroundWindow` / `GetWindowThreadProcessId` / process image pathで登録exeと照合します。windowのcreate/destroy/show/hide通知と可視トップレベルwindowの列挙も使用し、Backgroundは「関連processと可視windowが存在するが、そのゲームが最前面ではない状態」として記録します。関連PIDはprocess handleでも監視し、終了通知を受けると直ちに再照合します。通知取りこぼし対策として3秒間隔のreconciliationも実行します。プレイ時間はSessionの起動時間からBackgroundIntervalの合計を引いて算出します。
 
 旧バージョンへのロールバック互換性のため、従来の `focus_intervals` テーブルは削除せず、互換用ミラーとして新しい記録にも併記します。旧データは初回起動時にFocus区間の補集合をBackground区間として移行し、移行前後のプレイ秒数が一致した場合だけ確定します。
 
@@ -96,5 +96,4 @@ workflowはfrontend/Rustのcheck・test、依存ライセンス監査、第三�
 - Windows専用です。管理者processなど、OSがimage path取得を拒否するprocessは検出できない場合があります。
 - 実行ファイルは現状フルパスを入力して登録します。全disk自動探索は行いません。
 - ErogameScapeのHTML構造変更時はprovider selectorの更新が必要です。
-- reconciliation間隔の変更はtracker再起動後に反映されます。
 - crash recoveryは安全側に倒してlast-seenで閉じ、該当Sessionを要確認にします。失われた数秒は履歴編集画面で修正できます。

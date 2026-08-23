@@ -32,7 +32,6 @@ npm run tauri dev
 - lockfile どおりの clean install は CI と同じ `npm ci` を使える。
 - `npm run dev` は port 1420 の frontend-only preview。Tauri commands、native tracking、local asset protocol は利用できないため、native feature の動作確認には使わない。
 - updater UI を実更新なしで確認する場合だけ、PowerShell で `$env:VITE_MOCK_UPDATE='true'; npm run tauri dev` を使う。この分岐は `import.meta.env.DEV` 時のみ有効。
-- reconciliation interval の設定変更は running tracker へ hot reload されず、app restart 後に反映される。
 
 ## Git and pull request workflow
 
@@ -84,7 +83,7 @@ npm run build
 - child process は、登録 executable の descendant かつその game directory 配下にある場合だけ関連付ける。DRM/global helper が session を開き続けないための制約である。
 - playtime の正本は `(session end - launch) - background intervals`。duration/aggregate を保存 field に変えず、timestamp から query 時に算出する。
 - Background は「関連 process と visible top-level window があるが、その game が foreground ではない」期間だけ。window 出現前や消失後を Background にしない。process 終了時は最後の window-loss timestamp で session を閉じる。
-- foreground/window events と process-exit notification が主経路、2–30秒の reconciliation が取りこぼし回復用。どちらか一方を前提にしない。
+- foreground/window events と process-exit notification が主経路、3秒間隔の reconciliation が取りこぼし回復用。どちらか一方を前提にしない。
 - 複数 game の同時起動を許容する。foreground game 以外の visible/running games はそれぞれ独立して Background を持つ。
 - 起動時は persisted `last_seen` で orphan intervals/sessions を閉じ、session を `needs_review` にする。crash から次回起動までを playtime に加算しない安全策を維持する。
 - update install/relaunch は tracking 中の game がないことを再確認してから行う。自動通知と settings 画面の両経路に同じ guard がある。

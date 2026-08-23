@@ -81,7 +81,6 @@ pub struct AppSettings {
     pub autostart: bool,
     pub auto_check_updates: bool,
     pub skipped_update_version: Option<String>,
-    pub reconciliation_seconds: u64,
     pub close_to_tray: bool,
     pub theme: String,
     pub screenshot_hotkey: String,
@@ -92,7 +91,6 @@ impl Default for AppSettings {
             autostart: false,
             auto_check_updates: true,
             skipped_update_version: None,
-            reconciliation_seconds: 3,
             close_to_tray: true,
             theme: "dark".into(),
             screenshot_hotkey: String::new(),
@@ -112,6 +110,15 @@ mod settings_tests {
 
         assert!(settings.auto_check_updates);
         assert_eq!(settings.skipped_update_version, None);
+    }
+
+    #[test]
+    fn removed_reconciliation_setting_is_not_serialized() {
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"reconciliation_seconds":30}"#).unwrap();
+        let json = serde_json::to_value(settings).unwrap();
+
+        assert!(json.get("reconciliation_seconds").is_none());
     }
 }
 #[derive(Debug, Clone, Serialize)]

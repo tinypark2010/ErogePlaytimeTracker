@@ -17,6 +17,9 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Emitter};
+
+const RECONCILIATION_INTERVAL: Duration = Duration::from_secs(3);
+
 #[derive(Clone)]
 pub struct TrackingService {
     inner: Arc<Inner>,
@@ -37,7 +40,7 @@ struct Inner {
     app: AppHandle,
 }
 impl TrackingService {
-    pub fn start(db: Database, app: AppHandle, seconds: u64) -> Self {
+    pub fn start(db: Database, app: AppHandle) -> Self {
         let this = Self {
             inner: Arc::new(Inner {
                 db,
@@ -61,7 +64,7 @@ impl TrackingService {
                 if let Err(e) = worker.tick() {
                     log::error!("tracking reconciliation failed: {e:#}")
                 }
-                if let Ok(event) = events.recv_timeout(Duration::from_secs(seconds.clamp(2, 30))) {
+                if let Ok(event) = events.recv_timeout(RECONCILIATION_INTERVAL) {
                     worker.handle_event(event);
                     while let Ok(event) = events.recv_timeout(Duration::from_millis(20)) {
                         worker.handle_event(event);
