@@ -11,7 +11,7 @@ Create focused, policy-compliant pull requests without modifying or merging `mai
 
 Read the root `AGENTS.md` and `docs/development-workflow.md` completely before changing Git state. The detailed workflow document is the source of truth for branch names, commit prefixes, size guidelines, PR bodies, stacked PRs, and merge policy.
 
-Check `gh --version` and `gh auth status` before creating commits or pushing. If GitHub CLI is unavailable or unauthenticated, report the prerequisite and stop before partially publishing the change.
+Check `gh --version` and `gh auth status` before creating commits or pushing. Run the authentication check with the same network access required for publishing: a restricted sandbox can report a valid credential as invalid when GitHub is unreachable. If a sandboxed check reports an invalid token or a connection failure, rerun `gh auth status` with the required network or escalated permission before diagnosing an authentication problem. Do not ask the user to replace credentials or reauthenticate unless that unrestricted check also fails. Never print the token value. If GitHub CLI is unavailable or the unrestricted check confirms it is unauthenticated, report the prerequisite and stop before partially publishing the change.
 
 ## Prepare the change
 

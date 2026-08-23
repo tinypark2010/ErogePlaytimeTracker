@@ -24,6 +24,8 @@
 
 Windows 上で Rust stable MSVC、Visual Studio C++ Build Tools、Node.js 20+、npm、WebView2 が必要。
 
+- network依存のcommandがrestricted sandbox内で失敗した場合は、proxy・DNS・接続拒否などsandbox由来の可能性を確認し、必要なnetwork/escalated permissionで再実行してからcredential不良やremote service障害と診断する。network到達可能な確認でも拒否されるまでは、secretの交換や再認証をユーザーへ案内しない。secret値は表示しない。
+
 ```powershell
 npm install
 npm run tauri dev
