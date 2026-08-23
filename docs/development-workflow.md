@@ -10,13 +10,20 @@
 - PR作成の依頼はbranch作成、commit、検証、topic branchのpush、PR作成を許可しますが、mergeまでは許可しません。
 - 単なる実装依頼はcommit、push、PR作成を暗黙に許可しません。
 
-作業開始時は`main`をfast-forwardで更新してから、1 PRにつき1本のbranchを作ります。既にworking treeに変更がある場合は、変更を捨てずに現在のHEADからtopic branchを作成します。
+独立した新しい変更タスクでは、ファイルを編集する前にcurrent branchとworking treeを確認します。既存topic branchの継続または明示的なstacked PRでない限り、cleanなworking treeで`origin`をfetchし、local `main`を`origin/main`までfast-forwardしてから、1 PRにつき1本のbranchを作ります。同期後は`main`と`origin/main`が同じcommitであることを確認し、以前のPR branchをcheckoutしているという理由だけで新しい変更のbaseにしません。
 
 ```powershell
+git status --short --branch
+git fetch origin
 git switch main
-git pull --ff-only
+git merge --ff-only origin/main
+git rev-list --left-right --count main...origin/main
 git switch -c update/short-description
 ```
+
+`git rev-list`の結果は`0 0`でなければなりません。local `main`だけのcommitがある場合や、`main`と`origin/main`がdivergeしてfast-forwardできない場合は、その状態を解消せずに新しいbranchを作りません。履歴を書き換えたり変更を捨てたりせず、状況をユーザーへ報告します。
+
+working treeに既存変更がある場合は、自動的にswitch、pull、stashせず、現在のHEADから無条件にbranchを作りません。まず変更が今回のタスクに属するか、現在のHEADが意図したbaseかを確認します。正しいbaseから安全に分離できない場合は変更を保持したまま停止してユーザーへ確認します。dirtyなworking treeは、別のPR branchをbaseにする理由にはなりません。
 
 branch名は`<type>/<short-kebab-description>`とします。typeは変更のprimary commit prefixに合わせます。
 
@@ -130,7 +137,7 @@ PR titleはrelease notesで単独でも理解できる成果を、primary prefix
 - Related PRs: dependencyとmerge順
 - Why this cannot be split: size/scope例外の理由。例外がなければ`None`
 
-CodexはPR作成後、URL、base/head、commit一覧、検証結果、例外を報告します。PR作成の依頼だけではmergeしません。
+CodexはPR作成後、URL、base/head、commit一覧、検証結果、例外、current branchを報告します。CIやreviewへのfollow-upに備えてhead branchに留まり、PR作成の依頼だけでは`main`へのswitch、branch削除、mergeを行いません。
 
 ## Multiple and stacked pull requests
 
