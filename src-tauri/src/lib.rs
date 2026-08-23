@@ -79,11 +79,7 @@ pub fn run() {
                 .get_setting("app")?
                 .and_then(|x| serde_json::from_str::<AppSettings>(&x).ok())
                 .unwrap_or_default();
-            let tracker = TrackingService::start(
-                db.clone(),
-                app.handle().clone(),
-                settings.reconciliation_seconds,
-            );
+            let tracker = TrackingService::start(db.clone(), app.handle().clone());
             let screenshot_service = screenshot::ScreenshotService::start(
                 app.handle().clone(),
                 db.clone(),

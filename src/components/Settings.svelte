@@ -13,7 +13,6 @@
       autostart: false,
       auto_check_updates: true,
       skipped_update_version: null,
-      reconciliation_seconds: 3,
       close_to_tray: true,
       theme: 'dark',
       screenshot_hotkey: '',
@@ -265,13 +264,6 @@
     ><input type="checkbox" bind:checked={settings.autostart} /> Windowsログイン時に自動起動</label
   ><label class="check"
     ><input type="checkbox" bind:checked={settings.close_to_tray} /> ウィンドウを閉じたらトレイへ格納</label
-  ><label
-    >foreground照合間隔（秒）<input
-      type="number"
-      min="2"
-      max="30"
-      bind:value={settings.reconciliation_seconds}
-    /></label
   >
   <div class="hotkey-setting">
     <span class="setting-label">スクリーンショットキー</span>

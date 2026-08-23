@@ -321,9 +321,6 @@ pub fn update_settings(
     state: State<AppState>,
     mut settings: AppSettings,
 ) -> Cmd<()> {
-    if !(2..=30).contains(&settings.reconciliation_seconds) {
-        return Err("照合間隔は2〜30秒にしてください".into());
-    }
     if !matches!(settings.theme.as_str(), "dark" | "light" | "pink" | "blue") {
         return Err("未対応のカラーテーマです".into());
     }
