@@ -147,7 +147,7 @@
       ? 'このセッションを本当に削除しますか？'
       : confirmAction === 'all-sessions'
         ? `${sessions.length}件のセッションと除外時間の記録をすべて削除します。元に戻せません。`
-        : 'ゲームとすべての履歴を削除します。元に戻せません。';
+        : 'ゲーム情報、すべてのプレイ履歴、記録ポイント、スクリーンショット、SNS画像を削除します。元に戻せません。';
   async function load() {
     try {
       const [nextGame, nextSessions, nextTimestamps, nextScreenshots] = await Promise.all([
@@ -961,12 +961,6 @@
       style:background-image={`url("${imageSrc(game.thumbnail_path)}")`}
     ></div>{/if}
   <section class="detail">
-    <div class="actions detail-actions">
-      <button class="metadata-refresh" onclick={refreshMeta} disabled={refreshingMeta}
-        >{#if refreshingMeta}<span class="spinner" aria-hidden="true"
-          ></span>取得中…{:else}ErogameScapeから情報を更新{/if}</button
-      ><button class="danger" onclick={removeGame}>ゲームを削除</button>
-    </div>
     <div class="hero">
       <div class="detail-image">
         {#if game.thumbnail_path}<img src={imageSrc(game.thumbnail_path)} alt="" />{:else}<div
@@ -992,7 +986,12 @@
     <section class="panel game-info">
       <div class="panel-heading">
         <h2>ゲーム情報</h2>
-        {#if !editingGame}<button onclick={beginGameEdit}>編集</button>{/if}
+        {#if !editingGame}<div class="game-info-heading-actions">
+            <button class="metadata-refresh" onclick={refreshMeta} disabled={refreshingMeta}
+              >{#if refreshingMeta}<span class="spinner" aria-hidden="true"
+                ></span>取得中…{:else}ErogameScapeから情報を更新{/if}</button
+            ><button onclick={beginGameEdit}>編集</button>
+          </div>{/if}
       </div>
       {#if editingGame}<div class="game-info-form">
           <label>タイトル<input bind:value={editTitle} /></label><label
@@ -1186,21 +1185,16 @@
     <section class="panel">
       <div class="panel-heading">
         <h2>Session History</h2>
-        <div class="session-heading-actions">
-          <label class="page-size-control"
-            >表示<select
-              value={sessionPageSize}
-              onchange={(event) => {
-                sessionPageSize = Number((event.currentTarget as HTMLSelectElement).value);
-                sessionPage = 1;
-              }}
-              >{#each pageSizeOptions as size}<option value={size}>{size}件</option>{/each}</select
-            ></label
-          >
-          <button class="danger" disabled={!sessions.length} onclick={removeAllSessions}
-            >すべてのセッションを削除</button
-          >
-        </div>
+        <label class="page-size-control"
+          >表示<select
+            value={sessionPageSize}
+            onchange={(event) => {
+              sessionPageSize = Number((event.currentTarget as HTMLSelectElement).value);
+              sessionPage = 1;
+            }}
+            >{#each pageSizeOptions as size}<option value={size}>{size}件</option>{/each}</select
+          ></label
+        >
       </div>
       {#each pagedSessions as s}<button
           class:selected={selected?.id === s.id}
@@ -1217,6 +1211,28 @@
             >次へ →</button
           >
         </div>{/if}
+    </section>
+    <section class="panel danger-zone">
+      <div class="danger-zone-heading">
+        <h2>危険な操作</h2>
+        <p>ここで行った削除は元に戻せません。</p>
+      </div>
+      <div class="danger-zone-item">
+        <div>
+          <strong>すべてのセッションを削除</strong>
+          <p>このゲームのセッションと、各セッションに含まれる除外時間を削除します。</p>
+        </div>
+        <button class="danger" disabled={!sessions.length} onclick={removeAllSessions}
+          >すべてのセッションを削除</button
+        >
+      </div>
+      <div class="danger-zone-item">
+        <div>
+          <strong>ゲームを削除</strong>
+          <p>ゲーム情報と、このゲームに関連するすべての記録を削除します。</p>
+        </div>
+        <button class="danger" onclick={removeGame}>ゲームを削除</button>
+      </div>
     </section>
   </section>{/if}
 {#if socialOpen}<div class="modal social-image-modal">
