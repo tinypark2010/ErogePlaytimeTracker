@@ -111,7 +111,11 @@ message形式は`npm run commit-policy:check`で検証します。公開済みco
 ## Pull request scope
 
 - 1 PRは1つの成果または問題だけを扱います。
+- 成果は、1つの受入条件としてreview、release、revertできる単位です。一方を含めなくても他方の受入条件が成立し、schema、API、shared prerequisiteなどの技術的依存がなければ、別成果として別PRにします。
+- 同じ依頼文、画面、component、file、theme、prefix、作業時期であることや、conflictの可能性は、同一成果またはstacked PRの根拠になりません。包括的なtitleで複数成果を1つに言い換えることも認めません。
 - test、documentation、migration、必要なpreparatory refactorは、同じ成果に不可欠なら同一PRに含められます。
+- 複数commitを同一PRへ含める場合は、各commitが同じ受入条件に必要であることを説明できなければなりません。commit subjectが独立したuser-visible behaviorを表している場合は、具体的な技術的依存を示せない限り別PRにします。
+- PR数はoutcome分解から決めます。ユーザーの「PRを作成して」という単数表現を、独立した成果を1本へまとめる本数指定とは解釈しません。ユーザーが明示的に1本への統合を求め、この規約と衝突する場合は、公開前に衝突と分割案を報告します。
 - 原則として5 commits以内、production code追加500行以内とします。
 - 目安を超えたら分割を再検討します。分割不能ならPR本文の`Why this cannot be split`に理由を記録します。
 - failed checkがある状態でready PRを作りません。未完了状態の共有を明示的に依頼された場合だけdraft PRを使います。
@@ -135,7 +139,7 @@ PR titleはrelease notesで単独でも理解できる成果を、primary prefix
 - Verification: 実行したcommandと結果、必要なmanual test
 - Scope: commit数とproduction additions
 - Related PRs: dependencyとmerge順
-- Why this cannot be split: size/scope例外の理由。例外がなければ`None`
+- Why this cannot be split: 複数commitが同じ成果に不可欠な具体的依存、またはsize/scope例外の理由。単一commitで例外がなければ`None`
 
 CodexはPR作成後、URL、base/head、commit一覧、検証結果、例外、current branchを報告します。CIやreviewへのfollow-upに備えてhead branchに留まり、PR作成の依頼だけでは`main`へのswitch、branch削除、mergeを行いません。
 

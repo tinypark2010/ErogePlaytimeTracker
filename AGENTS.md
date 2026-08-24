@@ -38,6 +38,7 @@ npm run tauri dev
 ## Requirement analysis and change design
 
 - 変更・build taskでは、編集前にユーザーが求めるoutcome、現状と根本原因、守るべきinvariant・compatibility、受入条件を整理する。依頼文をそのまま完全な実装仕様とはみなさず、README、仕様、現行architecture、data flowから本来必要なbehaviorを確認する。単純な機械変更では作業規模に応じて簡潔に行う。
+- 依頼に複数のbehaviorが含まれる場合は、実装・受入・review・release・revertを独立して行えるoutcomeへ分解し、相互の技術的依存を明示する。一方を省いても他方の受入条件が成立し、schema、API、shared prerequisiteなどの依存がなければ別成果と扱う。同じ依頼文、画面、component、file、theme、prefix、作業時期であることは、同一成果の根拠にしない。
 - ユーザーが挙げた画面・command・fileを自動的に修正範囲と決めない。関連する入口から保存・runtime state・出力までをend-to-endで追い、同じfield、assumption、pattern、shared abstractionをrepository内で検索して、局所症状か共通原因かを判断する。
 - 修正は、意図したoutcomeを完全に満たす最も狭いshared boundaryへ置く。共通原因が別entry pointや隣接機能にも存在する場合は横展開するが、分析で見つけた対応が別のproduct decision、権限、または独立した成果へ広がる場合は無断で実装せず、影響と選択肢をユーザーへ提示する。
 - handoff前に、変更した経路だけでなく、同じ原因を共有する類似箇所、alternate entry point、serialized model/default、compatibility、docs、testへの反映漏れを変更内容に応じて確認する。testは変更行の存在ではなく、意図したinvariantと代表経路を検証する。
@@ -51,7 +52,7 @@ npm run tauri dev
 - commit/pushの依頼を受けた時点で`main`にいる場合も、上記のbase確認を満たしたうえでworking treeを保持したままtopic branchへ移ってからcommitする。unrelatedな既存変更を混ぜない。
 - commitは1機能・1不具合・1保守目的。実装と対応testは同じcommitに含める。prefix、size目安、message形式、stacked PR、merge方法のsource of truthは [docs/development-workflow.md](docs/development-workflow.md)。
 - PR作成を依頼されたら `$create-pr` skillを使用する。通常の実装依頼はcommit/push/PR作成までを暗黙に許可しない。
-- `main`へのPRは1成果だけを扱い、原則5 commits以内・production code追加500行以内。超過や複数変更を分離できない場合は、PR本文に技術的理由を残す。
+- `main`へのPRは1成果だけを扱い、原則5 commits以内・production code追加500行以内。PR数は依頼文の「PR」の単複ではなくoutcome分解から決める。超過や複数commitを分離できない場合は、PR本文に同一成果へ不可欠な具体的依存を残す。
 - force-push、公開済みcommitのrewrite、PRのmergeは、ユーザーが明示的に依頼しない限り行わない。
 
 ## Verification
