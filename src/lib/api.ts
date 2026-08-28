@@ -34,7 +34,7 @@ export const api = {
     title: string;
     brand?: string;
     release_date?: string;
-    thumbnail_url?: string;
+    thumbnail_path?: string;
     erogamescape_id?: number;
     source_url?: string;
     executable_paths: string[];
@@ -80,6 +80,9 @@ export const api = {
   openSocialImageDirectory: (gameId: number) =>
     invoke<void>('open_social_image_directory', { gameId }),
   fetchMetadata: (value: string) => invoke<Metadata>('fetch_erogamescape_metadata', { value }),
+  importThumbnail: (path: string) => invoke<string>('import_thumbnail', { path }),
+  saveCroppedThumbnail: (pngBase64: string) =>
+    invoke<string>('save_cropped_thumbnail', { pngBase64 }),
   refreshMetadata: (gameId: number) => invoke<void>('refresh_game_metadata', { gameId }),
   settings: () => invoke<Settings>('get_settings'),
   updateSettings: (settings: Settings) => invoke<void>('update_settings', { settings }),

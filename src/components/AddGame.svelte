@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
+  import ThumbnailCropper from './ThumbnailCropper.svelte';
   import { api } from '../lib/api';
+  import { imageSrc } from '../lib/time';
   import type { Metadata } from '../lib/types';
   export let ondone: (id: number) => void;
   export let oncancel: () => void;
@@ -9,10 +11,13 @@
     title = '',
     brand = '',
     release_date = '',
+    thumbnail_path = '',
     paths = '',
     metadata: Metadata | null = null,
     fetchingMeta = false,
+    importingThumbnail = false,
     saving = false,
+    cropOpen = false,
     error = '',
     toast = '',
     toastError = false,
@@ -27,7 +32,7 @@
     if (toastTimer) clearTimeout(toastTimer);
   });
   async function fetchMeta() {
-    if (fetchingMeta || saving) return;
+    if (fetchingMeta || importingThumbnail || saving) return;
     fetchingMeta = true;
     error = '';
     try {
@@ -35,6 +40,7 @@
       title = metadata.title;
       brand = metadata.brand ?? '';
       release_date = metadata.release_date ?? '';
+      thumbnail_path = metadata.thumbnail_path ?? '';
       showToast('ErogameScapeからゲーム情報を取得しました');
     } catch (e) {
       error = String(e);
@@ -44,7 +50,7 @@
     }
   }
   async function save() {
-    if (!title.trim() || fetchingMeta || saving) return;
+    if (!title.trim() || fetchingMeta || importingThumbnail || saving) return;
     saving = true;
     error = '';
     try {
@@ -52,7 +58,7 @@
         title,
         brand: brand || undefined,
         release_date: release_date || undefined,
-        thumbnail_url: metadata?.thumbnail_url ?? undefined,
+        thumbnail_path: thumbnail_path || undefined,
         erogamescape_id: metadata?.erogamescape_id,
         source_url: metadata?.source_url,
         executable_paths: paths
@@ -85,6 +91,28 @@
       paths = [...new Set([...current, ...selected])].join('\n');
     }
   }
+  async function selectThumbnail() {
+    const selected = await open({
+      title: 'サムネイル画像を選択',
+      multiple: false,
+      directory: false,
+      filters: [{ name: '画像ファイル', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+    });
+    if (!selected) return;
+    importingThumbnail = true;
+    error = '';
+    try {
+      thumbnail_path = await api.importThumbnail(selected);
+    } catch (e) {
+      error = String(e);
+    } finally {
+      importingThumbnail = false;
+    }
+  }
+  function openCrop() {
+    if (!thumbnail_path) return;
+    cropOpen = true;
+  }
 </script>
 
 <section class="panel form">
@@ -107,7 +135,47 @@
   <p class="hint">取得できない場合も下の項目から手動登録できます。</p>
   <label>タイトル<input bind:value={title} /></label><label
     >ブランド<input bind:value={brand} /></label
-  ><label>発売日<input type="date" bind:value={release_date} /></label><label
+  ><label>発売日<input type="date" bind:value={release_date} /></label>
+  <div class="form-field">
+    <span class="field-title">サムネイル</span>
+    <div class="thumbnail-editor">
+      <div class="thumbnail-preview">
+        {#if thumbnail_path}<img src={imageSrc(thumbnail_path)} alt="サムネイルプレビュー" />
+          <div class="thumbnail-preview-controls">
+            <button
+              type="button"
+              class="thumbnail-preview-remove"
+              aria-label="サムネイルの選択を解除"
+              onclick={() => (thumbnail_path = '')}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m7 7 10 10M17 7 7 17" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="thumbnail-preview-edit"
+              aria-label="サムネイルをトリミング"
+              onclick={openCrop}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M4 16.5V20h3.5L18.1 9.4l-3.5-3.5L4 16.5Zm16.7-9.8a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 3.5 3.5 1.5-1.7Z"
+                />
+              </svg>
+            </button>
+          </div>{:else}<span>NO IMAGE</span>{/if}
+      </div>
+      <div class="thumbnail-actions">
+        <button
+          type="button"
+          disabled={fetchingMeta || importingThumbnail || saving}
+          onclick={selectThumbnail}>{importingThumbnail ? '取込中…' : '画像を選択…'}</button
+        >
+      </div>
+    </div>
+  </div>
+  <label
     >実行ファイル（複数選択可能）<textarea
       rows="5"
       bind:value={paths}
@@ -118,11 +186,21 @@
     ></label
   >{#if error}<p class="error">{error}</p>{/if}
   <div class="actions">
-    <button class="primary" disabled={fetchingMeta || saving || !title.trim()} onclick={save}
-      >{saving ? '登録中…' : '登録'}</button
+    <button
+      class="primary"
+      disabled={fetchingMeta || importingThumbnail || saving || !title.trim()}
+      onclick={save}>{saving ? '登録中…' : '登録'}</button
     ><button disabled={saving} onclick={oncancel}>キャンセル</button>
   </div>
 </section>
+{#if cropOpen && thumbnail_path}<ThumbnailCropper
+    imagePath={thumbnail_path}
+    ondone={(path) => {
+      thumbnail_path = path;
+      cropOpen = false;
+    }}
+    onclose={() => (cropOpen = false)}
+  />{/if}
 {#if toast}<div class:error-toast={toastError} class="toast" role="status">
     <span>{toastError ? '!' : '✓'}</span>
     <p>{toast}</p>

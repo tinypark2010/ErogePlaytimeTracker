@@ -62,11 +62,17 @@ pub struct CreateGameInput {
     pub title: String,
     pub brand: Option<String>,
     pub release_date: Option<String>,
-    pub thumbnail_url: Option<String>,
+    pub thumbnail_path: Option<String>,
     pub erogamescape_id: Option<i64>,
     pub source_url: Option<String>,
     #[serde(default)]
     pub executable_paths: Vec<String>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct MetadataPreview {
+    #[serde(flatten)]
+    pub metadata: crate::metadata::GameMetadata,
+    pub thumbnail_path: Option<String>,
 }
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateGameInput {
