@@ -869,8 +869,60 @@ small {
 .detail-image .launch-overlay {
   top: 50%;
 }
+.detail-thumbnail-edit {
+  position: absolute;
+  z-index: 3;
+  top: 0.55rem;
+  right: 0.55rem;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid #ffffff70;
+  border-radius: 50%;
+  color: #fff;
+  background: #17141dcc;
+  box-shadow: 0 2px 8px #0008;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease;
+}
+.detail-thumbnail-edit svg {
+  width: 19px;
+  height: 19px;
+  fill: currentColor;
+}
+.detail-image:hover .detail-thumbnail-edit,
+.detail-image:focus-within .detail-thumbnail-edit {
+  opacity: 1;
+  pointer-events: auto;
+}
+:root[data-theme] .detail-image button.detail-thumbnail-edit,
+:root[data-theme] .detail-image button.detail-thumbnail-edit:hover,
+:root[data-theme] .detail-image button.detail-thumbnail-edit:focus-visible {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid #ffffff70;
+  border-radius: 50%;
+  color: #fff;
+  background: #17141dcc;
+  box-shadow: 0 2px 8px #0008;
+}
+:root[data-theme] .detail-image button.detail-thumbnail-edit:hover,
+:root[data-theme] .detail-image button.detail-thumbnail-edit:focus-visible {
+  background: #7957d5;
+}
 @media (max-width: 700px) {
-  .launch-overlay {
+  .launch-overlay,
+  .detail-thumbnail-edit {
     opacity: 1;
     pointer-events: auto;
   }
@@ -880,6 +932,33 @@ small {
   }
   .detail-image img {
     max-height: 320px;
+  }
+}
+.detail-thumbnail-modal {
+  z-index: 20;
+}
+.detail-thumbnail-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 94vw);
+  height: min(760px, 92vh);
+  margin: 0;
+  overflow: hidden;
+}
+.detail-thumbnail-dialog h2 {
+  margin-top: 0;
+}
+.detail-thumbnail-empty {
+  width: min(240px, 70vw);
+  margin: auto;
+}
+.detail-thumbnail-actions {
+  justify-content: flex-end;
+}
+@media (max-width: 700px) {
+  .thumbnail-crop-remove-control {
+    opacity: 1;
   }
 }
 .card {

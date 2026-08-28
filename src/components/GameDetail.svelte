@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
+  import ThumbnailCropEditor from './ThumbnailCropEditor.svelte';
   import { api } from '../lib/api';
   import {
     duration,
@@ -56,6 +57,13 @@
     sessionStart = '',
     sessionEnd = '',
     sessionFormDirty = false;
+  let thumbnailEditorOpen = false,
+    thumbnailDraftPath: string | null = null,
+    thumbnailOriginalPath: string | null = null,
+    thumbnailImporting = false,
+    thumbnailCropBusy = false,
+    thumbnailSaving = false,
+    thumbnailError = '';
   let editingTimestampId: number | null = null,
     savingTimestampId: number | null = null,
     editingTimestampName = '';
@@ -361,6 +369,52 @@
       showToast(`情報を更新できませんでした: ${String(e)}`, true);
     } finally {
       refreshingMeta = false;
+    }
+  }
+  function openThumbnailEditor() {
+    if (!game) return;
+    thumbnailOriginalPath = game.thumbnail_path;
+    thumbnailDraftPath = game.thumbnail_path;
+    thumbnailError = '';
+    thumbnailEditorOpen = true;
+  }
+  function closeThumbnailEditor() {
+    if (thumbnailImporting || thumbnailCropBusy || thumbnailSaving) return;
+    thumbnailEditorOpen = false;
+    thumbnailError = '';
+  }
+  async function selectThumbnail() {
+    const selected = await open({
+      title: 'サムネイル画像を選択',
+      multiple: false,
+      directory: false,
+      filters: [{ name: '画像ファイル', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+    });
+    if (!selected) return;
+    thumbnailImporting = true;
+    thumbnailError = '';
+    try {
+      thumbnailDraftPath = await api.importThumbnail(selected);
+    } catch (e) {
+      thumbnailError = String(e);
+    } finally {
+      thumbnailImporting = false;
+    }
+  }
+  async function saveThumbnail(path: string | null = thumbnailDraftPath) {
+    if (!game || thumbnailImporting || thumbnailSaving) return;
+    thumbnailSaving = true;
+    thumbnailError = '';
+    try {
+      await api.updateGameThumbnail(game.id, path);
+      thumbnailEditorOpen = false;
+      await load();
+      showToast('サムネイルを保存しました');
+    } catch (e) {
+      thumbnailDraftPath = path;
+      thumbnailError = String(e);
+    } finally {
+      thumbnailSaving = false;
     }
   }
   function removeGame() {
@@ -967,7 +1021,18 @@
             class="placeholder"
           >
             NO IMAGE
-          </div>{/if}<button class="launch-overlay" onclick={launch}>▶ 起動</button>
+          </div>{/if}<button class="launch-overlay" onclick={launch}>▶ 起動</button><button
+          type="button"
+          class="detail-thumbnail-edit"
+          aria-label="サムネイルを編集"
+          onclick={openThumbnailEditor}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 16.5V20h3.5L18.1 9.4l-3.5-3.5L4 16.5Zm16.7-9.8a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-1.6 1.6 3.5 3.5 1.5-1.7Z"
+            />
+          </svg>
+        </button>
       </div>
       <div>
         <h1>{game.title}</h1>
@@ -1235,6 +1300,57 @@
       </div>
     </section>
   </section>{/if}
+{#if thumbnailEditorOpen}<div class="modal detail-thumbnail-modal">
+    <div
+      class="panel detail-thumbnail-dialog"
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="detail-thumbnail-title"
+    >
+      <button
+        class="close"
+        aria-label="閉じる"
+        disabled={thumbnailImporting || thumbnailCropBusy || thumbnailSaving}
+        onclick={closeThumbnailEditor}>×</button
+      >
+      <h2 id="detail-thumbnail-title">サムネイルを編集</h2>
+      {#if thumbnailError}<p class="error">{thumbnailError}</p>{/if}
+      {#if thumbnailDraftPath}{#key thumbnailDraftPath}<ThumbnailCropEditor
+            imagePath={thumbnailDraftPath}
+            ondone={saveThumbnail}
+            onremove={() => (thumbnailDraftPath = null)}
+            onselect={selectThumbnail}
+            onbusy={(busy) => (thumbnailCropBusy = busy)}
+            selecting={thumbnailImporting}
+            saveDisabled={thumbnailDraftPath === thumbnailOriginalPath}
+          />{/key}{:else}<div class="thumbnail-preview detail-thumbnail-empty">
+          <span>NO IMAGE</span>
+        </div>
+        <div class="actions detail-thumbnail-actions">
+          <button
+            type="button"
+            disabled={thumbnailImporting ||
+              thumbnailSaving ||
+              thumbnailDraftPath === thumbnailOriginalPath}
+            onclick={() => (thumbnailDraftPath = thumbnailOriginalPath)}>リセット</button
+          >
+          <button
+            type="button"
+            disabled={thumbnailImporting || thumbnailSaving}
+            onclick={selectThumbnail}>{thumbnailImporting ? '取込中…' : '画像を選択…'}</button
+          >
+          <button
+            type="button"
+            class="primary"
+            disabled={thumbnailImporting ||
+              thumbnailSaving ||
+              thumbnailDraftPath === thumbnailOriginalPath}
+            onclick={() => saveThumbnail()}>{thumbnailSaving ? '保存中…' : '保存'}</button
+          >
+        </div>{/if}
+    </div>
+  </div>{/if}
 {#if socialOpen}<div class="modal social-image-modal">
     <div
       class="panel social-image-creator"

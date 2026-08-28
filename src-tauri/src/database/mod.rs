@@ -171,6 +171,16 @@ impl Database {
         tx.commit()?;
         Ok(())
     }
+    pub fn update_game_thumbnail(&self, id: i64, thumbnail: Option<&str>) -> Result<()> {
+        let updated = self.0.lock().execute(
+            "UPDATE games SET thumbnail_path=?,updated_at=? WHERE id=?",
+            params![thumbnail, now(), id],
+        )?;
+        if updated == 0 {
+            bail!("ゲームが見つかりません")
+        }
+        Ok(())
+    }
     pub fn delete_game(&self, id: i64) -> Result<()> {
         self.0
             .lock()
@@ -884,6 +894,45 @@ mod tests {
             .unwrap();
         assert_eq!(x[0].total_playtime_seconds, 3600);
         assert_eq!(x[0].session_count, 1);
+    }
+    #[test]
+    fn thumbnail_can_be_replaced_and_cleared() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+
+        d.update_game_thumbnail(g, Some(r#"C:\thumbnails\custom.png"#))
+            .unwrap();
+        assert_eq!(
+            d.get_game(g).unwrap().summary.thumbnail_path.as_deref(),
+            Some(r#"C:\thumbnails\custom.png"#)
+        );
+
+        d.update_game_thumbnail(g, None).unwrap();
+        assert!(d.get_game(g).unwrap().summary.thumbnail_path.is_none());
+        assert!(d.update_game_thumbnail(i64::MAX, None).is_err());
+    }
+    #[test]
+    fn erogamescape_metadata_replaces_an_existing_thumbnail() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        d.update_game_thumbnail(g, Some(r#"C:\thumbnails\manual.png"#))
+            .unwrap();
+        let metadata = crate::metadata::GameMetadata {
+            erogamescape_id: 42,
+            title: "Updated".into(),
+            brand: Some("Updated Brand".into()),
+            release_date: Some("2026-08-29".into()),
+            thumbnail_url: Some("https://example.test/cover.jpg".into()),
+            source_url: "https://example.test/game.php?game=42".into(),
+        };
+
+        d.apply_metadata(g, &metadata, Some(r#"C:\thumbnails\erogamescape.jpg"#))
+            .unwrap();
+
+        assert_eq!(
+            d.get_game(g).unwrap().summary.thumbnail_path.as_deref(),
+            Some(r#"C:\thumbnails\erogamescape.jpg"#)
+        );
     }
     #[test]
     fn rejects_overlap_and_outside() {

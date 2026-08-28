@@ -43,6 +43,8 @@ export const api = {
     id: number,
     input: { title: string; brand?: string; release_date?: string; source_url?: string },
   ) => invoke<void>('update_game', { id, input }),
+  updateGameThumbnail: (gameId: number, thumbnailPath: string | null) =>
+    invoke<void>('update_game_thumbnail', { gameId, thumbnailPath }),
   updateGamePlayStatus: (id: number, status: PlayStatus) =>
     invoke<void>('update_game_play_status', { id, status }),
   openExternalUrl: (url: string) => invoke<void>('open_external_url', { url }),
