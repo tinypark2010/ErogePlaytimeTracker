@@ -165,6 +165,8 @@ pub fn run() {
             commands::update_game_timestamp_name,
             commands::delete_game_timestamp,
             commands::fetch_erogamescape_metadata,
+            commands::import_thumbnail,
+            commands::save_cropped_thumbnail,
             commands::refresh_game_metadata,
             commands::get_settings,
             commands::update_settings,

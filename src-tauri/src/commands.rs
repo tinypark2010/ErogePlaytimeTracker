@@ -1,6 +1,6 @@
 use crate::{
     AppState,
-    metadata::{ErogameScapeProvider, GameMetadata, GameMetadataProvider},
+    metadata::{ErogameScapeProvider, GameMetadataProvider},
     models::*,
 };
 use tauri::State;
@@ -100,18 +100,19 @@ pub fn get_game(state: State<AppState>, id: i64) -> Cmd<GameDetail> {
     state.db.get_game(id).map_err(err)
 }
 #[tauri::command]
-pub async fn create_game(state: State<'_, AppState>, input: CreateGameInput) -> Cmd<i64> {
-    let thumb = if let Some(url) = &input.thumbnail_url {
-        match crate::thumbnail::download(&state.http, url, &state.thumbnails).await {
-            Ok(p) => Some(p.to_string_lossy().to_string()),
-            Err(e) => {
-                log::warn!("thumbnail download failed: {e:#}");
-                None
-            }
-        }
-    } else {
-        None
-    };
+pub fn create_game(state: State<AppState>, input: CreateGameInput) -> Cmd<i64> {
+    let local_thumbnail = input
+        .thumbnail_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    let thumb = local_thumbnail
+        .map(|path| {
+            crate::thumbnail::import_local(path, &state.thumbnails)
+                .map(|path| path.to_string_lossy().to_string())
+        })
+        .transpose()
+        .map_err(err)?;
     state.db.create_game(&input, thumb.as_deref()).map_err(err)
 }
 #[tauri::command]
@@ -281,15 +282,47 @@ pub fn delete_game_timestamp(state: State<AppState>, id: i64) -> Cmd<()> {
     state.db.delete_timestamp(id).map_err(err)
 }
 #[tauri::command]
-pub async fn fetch_erogamescape_metadata(value: String) -> Cmd<GameMetadata> {
-    ErogameScapeProvider::new()
+pub async fn fetch_erogamescape_metadata(
+    state: State<'_, AppState>,
+    value: String,
+) -> Cmd<MetadataPreview> {
+    let metadata = ErogameScapeProvider::new()
         .map_err(err)?
         .fetch_game(&value)
         .await
         .map_err(|e| {
             log::warn!("metadata fetch/parse failed: {e:#}");
             err(e)
-        })
+        })?;
+    let thumbnail_path = if let Some(url) = &metadata.thumbnail_url {
+        match crate::thumbnail::download(&state.http, url, &state.thumbnails).await {
+            Ok(path) => Some(path.to_string_lossy().to_string()),
+            Err(error) => {
+                log::warn!("thumbnail preview download failed: {error:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    Ok(MetadataPreview {
+        metadata,
+        thumbnail_path,
+    })
+}
+#[tauri::command]
+pub fn import_thumbnail(state: State<AppState>, path: String) -> Cmd<String> {
+    crate::thumbnail::import_local(path.trim(), &state.thumbnails)
+        .map(|path| path.to_string_lossy().to_string())
+        .map_err(err)
+}
+#[tauri::command]
+pub fn save_cropped_thumbnail(state: State<AppState>, png_base64: String) -> Cmd<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let bytes = STANDARD.decode(png_base64).map_err(err)?;
+    crate::thumbnail::store_png(&bytes, &state.thumbnails)
+        .map(|path| path.to_string_lossy().to_string())
+        .map_err(err)
 }
 #[tauri::command]
 pub async fn refresh_game_metadata(state: State<'_, AppState>, game_id: i64) -> Cmd<()> {

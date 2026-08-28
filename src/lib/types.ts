@@ -71,6 +71,7 @@ export interface Metadata {
   brand: string | null;
   release_date: string | null;
   thumbnail_url: string | null;
+  thumbnail_path: string | null;
   source_url: string;
 }
 export type Theme = 'dark' | 'light' | 'pink' | 'blue';
