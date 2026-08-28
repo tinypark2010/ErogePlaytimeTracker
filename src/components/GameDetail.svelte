@@ -2,11 +2,13 @@
   import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
+  import DateTimeSelect from './DateTimeSelect.svelte';
   import ThumbnailCropEditor from './ThumbnailCropEditor.svelte';
   import { api } from '../lib/api';
   import {
     validateBackgroundInterval,
     validateManualSession,
+    validateRunningSessionEdit,
     validateSessionEdit,
   } from '../lib/historyValidation';
   import {
@@ -26,7 +28,7 @@
     PlayStatus,
     Session,
   } from '../lib/types';
-  type ConfirmAction = 'session' | 'all-sessions' | 'game';
+  type ConfirmAction = 'session' | 'interval' | 'all-sessions' | 'game';
   type SocialStyle = 'midnight' | 'rose' | 'ocean';
   type SocialLayout = 'auto' | 'left' | 'right' | 'top' | 'bottom' | 'custom';
   type SocialPreset = Exclude<SocialLayout, 'custom'>;
@@ -61,10 +63,12 @@
     editTitle = '',
     editBrand = '',
     editSourceUrl = '',
+    sessionEditOpen = false,
     sessionStart = '',
     sessionEnd = '',
     sessionFormDirty = false,
     sessionFormError = '',
+    sessionActionError = '',
     intervalListError = '',
     sessionSaving = false,
     newIntervalOpen = false,
@@ -72,8 +76,11 @@
     newIntervalEnd = '',
     newIntervalError = '',
     intervalCreating = false,
-    savingIntervalId: number | null = null,
-    intervalErrors: Record<number, string> = {};
+    editingIntervalId: number | null = null,
+    intervalEditStart = '',
+    intervalEditEnd = '',
+    intervalEditError = '',
+    savingIntervalId: number | null = null;
   let thumbnailEditorOpen = false,
     thumbnailDraftPath: string | null = null,
     thumbnailOriginalPath: string | null = null,
@@ -122,6 +129,7 @@
     screenshotPageSize = 10,
     sessionPage = 1,
     sessionPageSize = 10;
+  let intervalBeingEdited: BackgroundInterval | null;
   $: screenshotPageCount = Math.max(1, Math.ceil(screenshots.length / screenshotPageSize));
   $: sessionPageCount = Math.max(1, Math.ceil(sessions.length / sessionPageSize));
   $: pagedScreenshots = screenshots.slice(
@@ -132,6 +140,10 @@
     (sessionPage - 1) * sessionPageSize,
     sessionPage * sessionPageSize,
   );
+  $: intervalBeingEdited =
+    editingIntervalId === null
+      ? null
+      : (intervals.find((interval) => interval.id === editingIntervalId) ?? null);
   $: socialImageEditorRect = fittedSocialImageRect(
     socialImageRect,
     socialScreenshotId,
@@ -164,15 +176,19 @@
   const confirmTitle = () =>
     confirmAction === 'session'
       ? 'セッションの削除'
-      : confirmAction === 'all-sessions'
-        ? 'すべてのセッションを削除'
-        : 'ゲームの削除';
+      : confirmAction === 'interval'
+        ? '除外区間の削除'
+        : confirmAction === 'all-sessions'
+          ? 'すべてのセッションを削除'
+          : 'ゲームの削除';
   const confirmMessage = () =>
     confirmAction === 'session'
       ? 'このセッションを本当に削除しますか？'
-      : confirmAction === 'all-sessions'
-        ? `${sessions.length}件のセッションと除外時間の記録をすべて削除します。元に戻せません。`
-        : 'ゲーム情報、すべてのプレイ履歴、記録ポイント、スクリーンショット、SNS画像を削除します。元に戻せません。';
+      : confirmAction === 'interval'
+        ? 'この除外区間を削除すると、該当時間がプレイ時間に加算されます。削除後は元に戻せません。'
+        : confirmAction === 'all-sessions'
+          ? `${sessions.length}件のセッションと除外時間の記録をすべて削除します。元に戻せません。`
+          : 'ゲーム情報、すべてのプレイ履歴、記録ポイント、スクリーンショット、SNS画像を削除します。元に戻せません。';
   async function load() {
     try {
       const [nextGame, nextSessions, nextTimestamps, nextScreenshots] = await Promise.all([
@@ -195,7 +211,7 @@
       );
       if (selected) {
         selected = nextSessions.find((session) => session.id === selected?.id) ?? null;
-        if (selected && !sessionFormDirty) {
+        if (selected && sessionEditOpen && !sessionFormDirty) {
           sessionStart = inputTime(selected.launched_at);
           sessionEnd = inputTime(selected.exited_at);
         }
@@ -242,24 +258,29 @@
     };
   });
   function resetSessionEditor() {
+    sessionEditOpen = false;
+    sessionStart = '';
+    sessionEnd = '';
+    sessionFormDirty = false;
     sessionFormError = '';
+    sessionActionError = '';
     intervalListError = '';
     newIntervalOpen = false;
     newIntervalStart = '';
     newIntervalEnd = '';
     newIntervalError = '';
-    intervalErrors = {};
+    editingIntervalId = null;
+    intervalEditStart = '';
+    intervalEditEnd = '';
+    intervalEditError = '';
   }
   function closeSessionEditor() {
     selected = null;
     intervals = [];
     resetSessionEditor();
   }
-  async function select(s: Session) {
+  async function beginSessionDetail(s: Session) {
     selected = s;
-    sessionStart = inputTime(s.launched_at);
-    sessionEnd = inputTime(s.exited_at);
-    sessionFormDirty = false;
     intervals = [];
     resetSessionEditor();
     try {
@@ -271,6 +292,21 @@
           '除外区間を読み込めませんでした。モーダルを閉じて、もう一度お試しください。';
       }
     }
+  }
+  function beginSessionEdit() {
+    if (!selected) return;
+    sessionStart = inputTime(selected.launched_at);
+    sessionEnd = inputTime(selected.exited_at);
+    sessionFormDirty = false;
+    sessionFormError = '';
+    sessionEditOpen = true;
+  }
+  function cancelSessionEdit() {
+    sessionEditOpen = false;
+    sessionStart = '';
+    sessionEnd = '';
+    sessionFormDirty = false;
+    sessionFormError = '';
   }
   async function addExe() {
     if (newPath) {
@@ -312,12 +348,19 @@
   }
   async function saveSession() {
     if (!selected) return;
-    sessionFormError = validateSessionEdit(sessionStart, sessionEnd, intervalRanges());
+    sessionFormError = selected.exited_at
+      ? validateSessionEdit(sessionStart, sessionEnd, intervalRanges())
+      : validateRunningSessionEdit(sessionStart, intervalRanges());
     if (sessionFormError) return;
     sessionSaving = true;
     try {
-      await api.updateSession(selected.id, utc(sessionStart), sessionEnd ? utc(sessionEnd) : null);
+      await api.updateSession(
+        selected.id,
+        utc(sessionStart),
+        selected.exited_at ? utc(sessionEnd) : null,
+      );
       sessionFormDirty = false;
+      cancelSessionEdit();
       await load();
     } catch {
       sessionFormError =
@@ -327,18 +370,29 @@
     }
   }
   function removeSession() {
-    if (selected) confirmAction = 'session';
+    if (selected) {
+      sessionActionError = '';
+      confirmAction = 'session';
+    }
   }
   function removeAllSessions() {
     if (sessions.length) confirmAction = 'all-sessions';
   }
   async function confirmDelete() {
     const action = confirmAction;
+    const interval = action === 'interval' ? intervalBeingEdited : null;
     confirmAction = null;
     try {
       if (action === 'session' && selected) {
         await api.deleteSession(selected.id);
         closeSessionEditor();
+        await load();
+      } else if (action === 'interval' && interval?.ended_at) {
+        savingIntervalId = interval.id;
+        intervalEditError = '';
+        await api.deleteInterval(interval.id);
+        intervals = await api.intervals(interval.play_session_id);
+        cancelEditInterval();
         await load();
       } else if (action === 'all-sessions') {
         await api.deleteAllSessions(gameId);
@@ -350,20 +404,15 @@
       }
     } catch {
       if (action === 'session') {
-        sessionFormError = 'セッションを削除できませんでした。もう一度お試しください。';
+        sessionActionError = 'セッションを削除できませんでした。もう一度お試しください。';
+      } else if (action === 'interval') {
+        intervalEditError = '除外区間を削除できませんでした。もう一度お試しください。';
       } else {
         pageError = '削除できませんでした。しばらくしてからもう一度お試しください。';
       }
+    } finally {
+      if (action === 'interval') savingIntervalId = null;
     }
-  }
-  function setIntervalError(id: number, message: string) {
-    intervalErrors = { ...intervalErrors, [id]: message };
-  }
-  function clearIntervalError(id: number) {
-    if (!intervalErrors[id]) return;
-    const nextErrors = { ...intervalErrors };
-    delete nextErrors[id];
-    intervalErrors = nextErrors;
   }
   function intervalRanges() {
     return intervals.map((interval) => ({
@@ -372,47 +421,56 @@
       end: interval.ended_at,
     }));
   }
-  async function saveInterval(i: BackgroundInterval) {
-    if (!selected || !i.ended_at) return;
+  function beginEditInterval(interval: BackgroundInterval) {
+    editingIntervalId = interval.id;
+    intervalEditStart = inputTime(interval.started_at);
+    intervalEditEnd = inputTime(interval.ended_at);
+    intervalEditError = '';
+  }
+  function cancelEditInterval() {
+    editingIntervalId = null;
+    intervalEditStart = '';
+    intervalEditEnd = '';
+    intervalEditError = '';
+  }
+  async function saveInterval() {
+    if (!selected || editingIntervalId === null) return;
+    const interval = intervals.find((item) => item.id === editingIntervalId);
+    if (!interval) return;
+    const intervalEnd = interval.ended_at ? intervalEditEnd : null;
     const validationError = validateBackgroundInterval(
-      i.started_at,
-      i.ended_at,
+      intervalEditStart,
+      intervalEnd,
       { start: selected.launched_at, end: selected.exited_at },
       intervalRanges(),
-      i.id,
+      interval.id,
     );
     if (validationError) {
-      setIntervalError(i.id, validationError);
+      intervalEditError = validationError;
       return;
     }
-    clearIntervalError(i.id);
-    savingIntervalId = i.id;
+    intervalEditError = '';
+    savingIntervalId = interval.id;
     try {
-      await api.updateInterval(i.id, utc(i.started_at), utc(i.ended_at!));
-      intervals = await api.intervals(i.play_session_id);
-      await load();
-      clearIntervalError(i.id);
-    } catch {
-      setIntervalError(
-        i.id,
-        '除外区間を保存できませんでした。入力内容を確認して、もう一度お試しください。',
+      await api.updateInterval(
+        interval.id,
+        utc(intervalEditStart),
+        intervalEnd ? utc(intervalEnd) : null,
       );
+      intervals = await api.intervals(interval.play_session_id);
+      cancelEditInterval();
+      await load();
+    } catch {
+      intervalEditError =
+        '除外区間を保存できませんでした。入力内容を確認して、もう一度お試しください。';
     } finally {
       savingIntervalId = null;
     }
   }
-  async function deleteInterval(i: BackgroundInterval) {
-    savingIntervalId = i.id;
-    clearIntervalError(i.id);
-    try {
-      await api.deleteInterval(i.id);
-      intervals = await api.intervals(i.play_session_id);
-      await load();
-    } catch {
-      setIntervalError(i.id, '除外区間を削除できませんでした。もう一度お試しください。');
-    } finally {
-      savingIntervalId = null;
-    }
+  function deleteEditingInterval() {
+    if (!intervalBeingEdited?.ended_at) return;
+    intervalEditError = '';
+    confirmAction = 'interval';
   }
   function beginAddInterval() {
     newIntervalStart = '';
@@ -1422,8 +1480,9 @@
       </div>
       {#each pagedSessions as s}<button
           class:selected={selected?.id === s.id}
+          class:live-interval={!s.exited_at}
           class="session"
-          onclick={() => select(s)}
+          onclick={() => beginSessionDetail(s)}
           ><span
             >{local(s.launched_at)} → {local(s.exited_at)}{s.needs_review ? ' ・ 要確認' : ''}</span
           ><strong>{duration(s.playtime_seconds)}</strong></button
@@ -1754,9 +1813,20 @@
     </div>
   </div>{/if}
 {#if selected}<div class="modal">
-    <section class="panel editor">
-      <button class="close" aria-label="閉じる" onclick={closeSessionEditor}>×</button>
-      <h2>Session #{selected.id}</h2>
+    <div
+      class="panel editor"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="session-detail-title"
+    >
+      <button
+        class="close"
+        aria-label="閉じる"
+        disabled={sessionSaving || savingIntervalId !== null}
+        onclick={closeSessionEditor}>×</button
+      >
+      <h2 id="session-detail-title">セッション詳細</h2>
+      <p class="hint">Session #{selected.id}</p>
       <div class="session-breakdown">
         <span
           ><small>起動時間</small><strong
@@ -1769,8 +1839,45 @@
         <span><small>プレイ時間</small><strong>{duration(selected.playtime_seconds)}</strong></span>
         <span><small>除外時間</small><strong>{duration(selected.background_seconds)}</strong></span>
       </div>
+      <div class="session-breakdown session-date-breakdown">
+        <span><small>開始日時</small><strong>{local(selected.launched_at)}</strong></span>
+        <span><small>終了日時</small><strong>{local(selected.exited_at)}</strong></span>
+      </div>
+      <div class="actions session-detail-actions">
+        <button class="primary" type="button" onclick={beginSessionEdit}>セッションを編集</button
+        ><button class="danger" type="button" onclick={removeSession}>削除</button>
+      </div>
+      {#if sessionActionError}<p class="form-error" role="alert">{sessionActionError}</p>{/if}
+      <h3>プレイ時間から除外した時間</h3>
+      <p class="hint">
+        アプリがバックグラウンドにあった区間です。起動時間からこの合計を除外します。
+      </p>
+      {#if intervalListError}<p class="form-error" role="alert">{intervalListError}</p>{/if}
+      {#each intervals as i (i.id)}<button
+          class:live-interval={!i.ended_at}
+          class="interval-summary"
+          disabled={savingIntervalId === i.id}
+          onclick={() => beginEditInterval(i)}
+          >{local(i.started_at)} ～ {i.ended_at
+            ? local(i.ended_at)
+            : 'バックグラウンド時間を記録中'}</button
+        >{/each}
+      <button type="button" onclick={beginAddInterval}>除外区間を追加</button>
+    </div>
+  </div>{/if}
+{#if sessionEditOpen && selected}<div class="modal history-entry-modal">
+    <div
+      class="panel editor history-entry-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="session-editor-title"
+    >
+      <button class="close" aria-label="閉じる" disabled={sessionSaving} onclick={cancelSessionEdit}
+        >×</button
+      >
+      <h2 id="session-editor-title">セッションを編集</h2>
       <form
-        class="history-range-form session-range-form"
+        class="history-range-form"
         novalidate
         onsubmit={(event) => {
           event.preventDefault();
@@ -1778,141 +1885,175 @@
         }}
       >
         <div class="history-range-fields">
-          <label
-            ><span>開始日時</span><input
-              type="datetime-local"
-              step="1"
-              required
-              aria-invalid={Boolean(sessionFormError)}
-              bind:value={sessionStart}
-              oninput={() => {
+          <DateTimeSelect
+            label="開始日時"
+            value={sessionStart}
+            disabled={sessionSaving}
+            invalid={Boolean(sessionFormError)}
+            onchange={(value) => {
+              sessionStart = value;
+              sessionFormDirty = true;
+              sessionFormError = '';
+            }}
+          />
+          {#if selected.exited_at}<DateTimeSelect
+              label="終了日時"
+              value={sessionEnd}
+              disabled={sessionSaving}
+              invalid={Boolean(sessionFormError)}
+              onchange={(value) => {
+                sessionEnd = value;
                 sessionFormDirty = true;
                 sessionFormError = '';
               }}
-            /></label
-          ><label
-            ><span>終了日時</span><input
-              type="datetime-local"
-              step="1"
-              min={sessionStart || undefined}
-              aria-invalid={Boolean(sessionFormError)}
-              bind:value={sessionEnd}
-              oninput={() => {
-                sessionFormDirty = true;
-                sessionFormError = '';
-              }}
-            /></label
-          >
+            />{:else}<div class="running-end-note">
+              <small>終了日時</small>
+              <strong>実行中</strong>
+              <span>終了日時は追跡終了時に自動で記録されます。</span>
+            </div>{/if}
         </div>
         <div class="actions">
-          <button class="primary" type="submit" disabled={sessionSaving}
+          <button type="button" disabled={sessionSaving} onclick={cancelSessionEdit}
+            >キャンセル</button
+          ><button class="primary" type="submit" disabled={sessionSaving}
             >{sessionSaving ? '保存中…' : '保存'}</button
-          ><button class="danger" type="button" disabled={sessionSaving} onclick={removeSession}
-            >削除</button
           >
         </div>
         {#if sessionFormError}<p class="form-error" role="alert">{sessionFormError}</p>{/if}
       </form>
-      <h3>プレイ時間から除外した時間</h3>
+    </div>
+  </div>{/if}
+{#if editingIntervalId !== null && selected && intervalBeingEdited}<div
+    class="modal history-entry-modal"
+  >
+    <div
+      class="panel editor history-entry-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="interval-editor-title"
+    >
+      <button
+        class="close"
+        aria-label="閉じる"
+        disabled={savingIntervalId === editingIntervalId}
+        onclick={cancelEditInterval}>×</button
+      >
+      <h2 id="interval-editor-title">除外区間を編集</h2>
       <p class="hint">
-        アプリがバックグラウンドにあった区間です。起動時間からこの合計を除外します。
+        セッション範囲：{local(selected.launched_at)} ～ {local(selected.exited_at)}
       </p>
-      {#if intervalListError}<p class="form-error" role="alert">{intervalListError}</p>{/if}
-      {#each intervals as i (i.id)}<div class:live-interval={!i.ended_at} class="interval-entry">
-          {#if i.ended_at}<form
-              class="interval"
-              novalidate
-              onsubmit={(event) => {
-                event.preventDefault();
-                saveInterval(i);
+      <form
+        class="history-range-form"
+        novalidate
+        onsubmit={(event) => {
+          event.preventDefault();
+          saveInterval();
+        }}
+      >
+        <div class="history-range-fields">
+          <DateTimeSelect
+            label="開始日時"
+            value={intervalEditStart}
+            disabled={savingIntervalId === editingIntervalId}
+            invalid={Boolean(intervalEditError)}
+            onchange={(value) => {
+              intervalEditStart = value;
+              intervalEditError = '';
+            }}
+          />
+          {#if intervalBeingEdited.ended_at}<DateTimeSelect
+              label="終了日時"
+              value={intervalEditEnd}
+              disabled={savingIntervalId === editingIntervalId}
+              invalid={Boolean(intervalEditError)}
+              onchange={(value) => {
+                intervalEditEnd = value;
+                intervalEditError = '';
               }}
-            >
-              <input
-                type="datetime-local"
-                step="1"
-                required
-                min={inputTime(selected.launched_at)}
-                max={inputTime(selected.exited_at) || undefined}
-                aria-label="除外区間の開始日時"
-                aria-invalid={Boolean(intervalErrors[i.id])}
-                value={inputTime(i.started_at)}
-                oninput={(event) => {
-                  i.started_at = (event.currentTarget as HTMLInputElement).value;
-                  clearIntervalError(i.id);
-                }}
-              /><span>〜</span><input
-                type="datetime-local"
-                step="1"
-                required
-                min={inputTime(i.started_at)}
-                max={inputTime(selected.exited_at) || undefined}
-                aria-label="除外区間の終了日時"
-                aria-invalid={Boolean(intervalErrors[i.id])}
-                value={inputTime(i.ended_at)}
-                oninput={(event) => {
-                  i.ended_at = (event.currentTarget as HTMLInputElement).value;
-                  clearIntervalError(i.id);
-                }}
-              /><button class="primary" type="submit" disabled={savingIntervalId === i.id}
-                >{savingIntervalId === i.id ? '保存中…' : '保存'}</button
-              ><button
-                type="button"
-                disabled={savingIntervalId === i.id}
-                onclick={() => deleteInterval(i)}>削除</button
-              >
-            </form>{:else}<span
-              >{local(i.started_at)} ～ バックグラウンド時間を記録中（{duration(
-                Math.max(0, Math.floor((nowMs - new Date(i.started_at).getTime()) / 1000)),
-              )}）</span
+            />{:else}<div class="running-end-note">
+              <small>終了日時</small>
+              <strong>記録中</strong>
+              <span>終了日時はフォアグラウンド復帰時に自動で記録されます。</span>
+            </div>{/if}
+        </div>
+        <div class="actions interval-editor-actions">
+          <button
+            type="button"
+            disabled={savingIntervalId === editingIntervalId}
+            onclick={cancelEditInterval}>キャンセル</button
+          ><button class="primary" type="submit" disabled={savingIntervalId === editingIntervalId}
+            >{savingIntervalId === editingIntervalId ? '保存中…' : '保存'}</button
+          >
+          {#if intervalBeingEdited.ended_at}<button
+              class="danger interval-editor-delete"
+              type="button"
+              disabled={savingIntervalId === editingIntervalId}
+              onclick={deleteEditingInterval}>削除</button
             >{/if}
-          {#if intervalErrors[i.id]}<p class="form-error" role="alert">
-              {intervalErrors[i.id]}
-            </p>{/if}
-        </div>{/each}
-      {#if newIntervalOpen}<form
-          class="history-range-form new-interval-form"
-          novalidate
-          onsubmit={(event) => {
-            event.preventDefault();
-            addInterval();
-          }}
-        >
-          <div class="history-range-fields">
-            <label
-              ><span>開始日時</span><input
-                type="datetime-local"
-                step="1"
-                required
-                min={inputTime(selected.launched_at)}
-                max={inputTime(selected.exited_at) || undefined}
-                aria-invalid={Boolean(newIntervalError)}
-                bind:value={newIntervalStart}
-                oninput={() => (newIntervalError = '')}
-              /></label
-            ><label
-              ><span>終了日時</span><input
-                type="datetime-local"
-                step="1"
-                required
-                min={newIntervalStart || inputTime(selected.launched_at)}
-                max={inputTime(selected.exited_at) || undefined}
-                aria-invalid={Boolean(newIntervalError)}
-                bind:value={newIntervalEnd}
-                oninput={() => (newIntervalError = '')}
-              /></label
-            >
-          </div>
-          <div class="actions">
-            <button class="primary" type="submit" disabled={intervalCreating}
-              >{intervalCreating ? '追加中…' : '追加'}</button
-            ><button type="button" disabled={intervalCreating} onclick={cancelAddInterval}
-              >キャンセル</button
-            >
-          </div>
-          {#if newIntervalError}<p class="form-error" role="alert">{newIntervalError}</p>{/if}
-        </form>{:else}<button type="button" onclick={beginAddInterval}>除外区間を追加</button>{/if}
-    </section>
-  </div>{/if}{#if pageError && !selected}<p class="error">{pageError}</p>{/if}
+        </div>
+        {#if intervalEditError}<p class="form-error" role="alert">{intervalEditError}</p>{/if}
+      </form>
+    </div>
+  </div>{/if}
+{#if newIntervalOpen && selected}<div class="modal history-entry-modal">
+    <div
+      class="panel editor history-entry-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="new-interval-title"
+    >
+      <button
+        class="close"
+        aria-label="閉じる"
+        disabled={intervalCreating}
+        onclick={cancelAddInterval}>×</button
+      >
+      <h2 id="new-interval-title">除外区間を追加</h2>
+      <p class="hint">
+        セッション範囲：{local(selected.launched_at)} ～ {local(selected.exited_at)}
+      </p>
+      <form
+        class="history-range-form"
+        novalidate
+        onsubmit={(event) => {
+          event.preventDefault();
+          addInterval();
+        }}
+      >
+        <div class="history-range-fields">
+          <DateTimeSelect
+            label="開始日時"
+            value={newIntervalStart}
+            disabled={intervalCreating}
+            invalid={Boolean(newIntervalError)}
+            onchange={(value) => {
+              newIntervalStart = value;
+              newIntervalError = '';
+            }}
+          />
+          <DateTimeSelect
+            label="終了日時"
+            value={newIntervalEnd}
+            disabled={intervalCreating}
+            invalid={Boolean(newIntervalError)}
+            onchange={(value) => {
+              newIntervalEnd = value;
+              newIntervalError = '';
+            }}
+          />
+        </div>
+        <div class="actions">
+          <button type="button" disabled={intervalCreating} onclick={cancelAddInterval}
+            >キャンセル</button
+          ><button class="primary" type="submit" disabled={intervalCreating}
+            >{intervalCreating ? '追加中…' : '追加'}</button
+          >
+        </div>
+        {#if newIntervalError}<p class="form-error" role="alert">{newIntervalError}</p>{/if}
+      </form>
+    </div>
+  </div>{/if}
+{#if pageError && !selected}<p class="error">{pageError}</p>{/if}
 {#if selectedScreenshot}<div
     class="modal screenshot-modal"
     role="presentation"

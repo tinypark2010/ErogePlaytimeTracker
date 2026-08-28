@@ -231,12 +231,17 @@ small {
 .session {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr 120px 180px;
+  grid-template-columns: minmax(0, 1fr) 120px;
   text-align: left;
   margin: 0.4rem 0;
 }
 .session.selected {
   outline: 2px solid #9677e8;
+}
+.interval-summary {
+  width: 100%;
+  margin: 0.4rem 0;
+  text-align: left;
 }
 .modal {
   position: fixed;
@@ -339,21 +344,31 @@ small {
 .history-range-form .actions {
   margin-top: 0.75rem;
 }
-.session-range-form {
-  padding-bottom: 1rem;
-  border-bottom: 1px solid #302d39;
+.history-entry-modal {
+  z-index: 12;
 }
-.new-interval-form {
-  padding: 0.9rem;
-  border: 1px solid #474252;
+.history-entry-dialog {
+  width: min(620px, 94vw);
+}
+.history-entry-dialog .history-range-fields {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 560px;
+}
+.running-end-note {
+  display: grid;
+  gap: 0.25rem;
+  max-width: 560px;
+  padding: 0.75rem;
+  border: 1px solid #302d39;
   border-radius: 8px;
-  background: #00000018;
+  background: #111018;
 }
-.interval-entry {
-  margin: 0.65rem 0;
+.running-end-note small,
+.running-end-note span {
+  color: #aaa3b4;
 }
-.interval-entry .interval {
-  margin: 0;
+.running-end-note strong {
+  color: #70e09a;
 }
 .form-error {
   margin: 0.55rem 0 0;
@@ -374,12 +389,9 @@ small {
 :root[data-theme]:not([data-theme='dark']) .date-time-separator {
   background: #c8c2ce;
 }
-:root[data-theme]:not([data-theme='dark']) .session-range-form {
+:root[data-theme]:not([data-theme='dark']) .running-end-note {
   border-color: #d8d2de;
-}
-:root[data-theme]:not([data-theme='dark']) .new-interval-form {
-  border-color: #c8c2ce;
-  background: #00000008;
+  background: #00000006;
 }
 .interval {
   margin: 0.5rem 0;
@@ -404,12 +416,6 @@ small {
   }
   .hero {
     display: block;
-  }
-  .session {
-    grid-template-columns: 1fr;
-  }
-  .history-range-fields {
-    grid-template-columns: 1fr;
   }
   .grid {
     grid-template-columns: 1fr 1fr;
@@ -778,9 +784,6 @@ small {
 .thumbnail-crop-actions {
   justify-content: flex-end;
 }
-.session {
-  grid-template-columns: 1fr 120px;
-}
 @media (max-width: 700px) {
   .session {
     grid-template-columns: 1fr;
@@ -791,6 +794,18 @@ small {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
   margin: 0 0 1rem;
+}
+.session-date-breakdown {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.session-detail-actions {
+  margin-bottom: 1rem;
+}
+.interval-editor-actions {
+  width: 100%;
+}
+.interval-editor-delete {
+  margin-left: auto;
 }
 .session-breakdown span {
   display: grid;
@@ -823,6 +838,12 @@ small {
 }
 :root[data-theme='blue'] .session-breakdown small {
   color: #526c85;
+}
+@media (max-width: 700px) {
+  .session-breakdown,
+  .session-date-breakdown {
+    grid-template-columns: 1fr;
+  }
 }
 .tracking-status {
   white-space: nowrap;
@@ -1240,12 +1261,15 @@ small {
   margin: 0.35rem 0 0;
   line-height: 1.4;
 }
-.live-interval {
-  padding: 0.7rem 0.85rem;
-  border: 1px solid #4c8c65;
-  border-radius: 6px;
+:root[data-theme] button.live-interval {
+  border-color: #4c8c65;
   background: #173021;
   color: #8ee5aa;
+}
+:root[data-theme] button.live-interval:not(:disabled):hover,
+:root[data-theme] button.live-interval:focus-visible {
+  border-color: #63a87c;
+  background: #21452e;
 }
 .back-button {
   position: relative;

@@ -422,11 +422,20 @@ impl Database {
         Ok(id)
     }
     pub fn update_session(&self, id: i64, start: &str, end: Option<&str>) -> Result<()> {
-        if let Some(e) = end {
-            parse_range(start, e)?
-        }
+        DateTime::parse_from_rfc3339(start).context("開始日時が不正です")?;
         let mut c = self.0.lock();
         let tx = c.transaction()?;
+        let existing_end: Option<String> = tx.query_row(
+            "SELECT exited_at FROM play_sessions WHERE id=?",
+            [id],
+            |r| r.get(0),
+        )?;
+        if existing_end.is_some() != end.is_some() {
+            bail!("セッションの実行状態は手動変更できません")
+        }
+        if let Some(end) = end {
+            parse_range(start, end)?;
+        }
         let invalid:i64=tx.query_row("SELECT COUNT(*) FROM background_intervals WHERE play_session_id=? AND (started_at < ? OR (? IS NOT NULL AND (ended_at IS NULL OR ended_at > ?)))",params![id,start,end,end],|r|r.get(0))?;
         if invalid > 0 {
             bail!("バックグラウンド区間がSession範囲外になります")
@@ -460,23 +469,19 @@ impl Database {
         tx.commit()?;
         Ok(id)
     }
-    pub fn update_interval(&self, id: i64, start: &str, end: &str) -> Result<()> {
-        parse_range(start, end)?;
+    pub fn update_interval(&self, id: i64, start: &str, end: Option<&str>) -> Result<()> {
+        DateTime::parse_from_rfc3339(start).context("開始日時が不正です")?;
         let mut c = self.0.lock();
         let tx = c.transaction()?;
-        let session: i64 = tx.query_row(
-            "SELECT play_session_id FROM background_intervals WHERE id=?",
+        let (session, existing_end): (i64, Option<String>) = tx.query_row(
+            "SELECT play_session_id,ended_at FROM background_intervals WHERE id=?",
             [id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        validate_interval(
-            &tx,
-            "background_intervals",
-            session,
-            Some(id),
-            start,
-            Some(end),
-        )?;
+        if existing_end.is_some() != end.is_some() {
+            bail!("除外区間の記録状態は手動変更できません")
+        }
+        validate_interval(&tx, "background_intervals", session, Some(id), start, end)?;
         tx.execute(
             "UPDATE background_intervals SET started_at=?,ended_at=?,updated_at=? WHERE id=?",
             params![start, end, now(), id],
@@ -949,6 +954,66 @@ mod tests {
         );
         assert!(
             d.update_session(s, "2026-01-01T00:35:00Z", Some("2026-01-01T01:00:00Z"))
+                .is_err()
+        );
+    }
+    #[test]
+    fn session_update_preserves_running_state() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let closed = d
+            .manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
+            .unwrap();
+        assert!(
+            d.update_session(closed, "2026-01-01T00:00:00Z", None)
+                .is_err()
+        );
+
+        let running = d.start_session(g, "2026-01-01T02:00:00Z").unwrap();
+        assert!(
+            d.update_session(
+                running,
+                "2026-01-01T02:05:00Z",
+                Some("2026-01-01T03:00:00Z")
+            )
+            .is_err()
+        );
+        d.update_session(running, "2026-01-01T02:05:00Z", None)
+            .unwrap();
+
+        let sessions = d.list_sessions(g).unwrap();
+        assert_eq!(sessions[0].id, running);
+        assert_eq!(sessions[0].launched_at, "2026-01-01T02:05:00Z");
+        assert_eq!(sessions[0].exited_at, None);
+        assert_eq!(
+            sessions[1].exited_at.as_deref(),
+            Some("2026-01-01T01:00:00Z")
+        );
+    }
+    #[test]
+    fn interval_update_preserves_recording_state() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let session = d.start_session(g, "2026-01-01T00:00:00Z").unwrap();
+        let interval = d.start_interval(session, "2026-01-01T00:10:00Z").unwrap();
+
+        assert!(
+            d.update_interval(
+                interval,
+                "2026-01-01T00:15:00Z",
+                Some("2026-01-01T00:20:00Z")
+            )
+            .is_err()
+        );
+        d.update_interval(interval, "2026-01-01T00:15:00Z", None)
+            .unwrap();
+        d.end_interval(interval, "2026-01-01T00:30:00Z").unwrap();
+
+        let recorded = d.intervals(session).unwrap().remove(0);
+        assert_eq!(recorded.started_at, "2026-01-01T00:15:00Z");
+        assert_eq!(recorded.ended_at.as_deref(), Some("2026-01-01T00:30:00Z"));
+        assert!(
+            d.update_interval(interval, &recorded.started_at, None)
                 .is_err()
         );
     }
