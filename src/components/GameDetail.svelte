@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
+  import DateTimeSelect from './DateTimeSelect.svelte';
   import ThumbnailCropEditor from './ThumbnailCropEditor.svelte';
   import { api } from '../lib/api';
   import {
@@ -46,6 +47,7 @@
     intervals: BackgroundInterval[] = [],
     pageError = '',
     newPath = '',
+    manualSessionOpen = false,
     manualStart = '',
     manualEnd = '',
     manualSessionError = '',
@@ -295,13 +297,25 @@
     await api.removeExecutable(id);
     await load();
   }
+  function beginManualSession() {
+    manualStart = '';
+    manualEnd = '';
+    manualSessionError = '';
+    manualSessionOpen = true;
+  }
+  function cancelManualSession() {
+    manualSessionOpen = false;
+    manualStart = '';
+    manualEnd = '';
+    manualSessionError = '';
+  }
   async function addManual() {
     manualSessionError = validateManualSession(manualStart, manualEnd);
     if (manualSessionError) return;
     manualSessionSaving = true;
     try {
       await api.manualSession(gameId, utc(manualStart), utc(manualEnd));
-      manualStart = manualEnd = '';
+      cancelManualSession();
       await load();
     } catch {
       manualSessionError =
@@ -1368,43 +1382,10 @@
     </section>
     <section class="panel">
       <h2>手動セッション追加</h2>
-      <form
-        class="history-range-form"
-        novalidate
-        onsubmit={(event) => {
-          event.preventDefault();
-          addManual();
-        }}
+      <p class="hint">開始日時と終了日時を指定して、過去のプレイ記録を追加できます。</p>
+      <button class="primary" type="button" onclick={beginManualSession}
+        >手動セッションを追加</button
       >
-        <div class="history-range-fields">
-          <label
-            ><span>開始日時</span><input
-              type="datetime-local"
-              step="1"
-              required
-              aria-invalid={Boolean(manualSessionError)}
-              bind:value={manualStart}
-              oninput={() => (manualSessionError = '')}
-            /></label
-          ><label
-            ><span>終了日時</span><input
-              type="datetime-local"
-              step="1"
-              required
-              min={manualStart || undefined}
-              aria-invalid={Boolean(manualSessionError)}
-              bind:value={manualEnd}
-              oninput={() => (manualSessionError = '')}
-            /></label
-          >
-        </div>
-        <div class="actions">
-          <button class="primary" type="submit" disabled={manualSessionSaving}
-            >{manualSessionSaving ? '追加中…' : '追加'}</button
-          >
-        </div>
-        {#if manualSessionError}<p class="form-error" role="alert">{manualSessionError}</p>{/if}
-      </form>
     </section>
     <section class="panel">
       <div class="panel-heading">
@@ -1751,6 +1732,61 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>{/if}
+{#if manualSessionOpen}<div class="modal manual-session-modal">
+    <div
+      class="panel editor manual-session-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="manual-session-title"
+    >
+      <button
+        class="close"
+        aria-label="閉じる"
+        disabled={manualSessionSaving}
+        onclick={cancelManualSession}>×</button
+      >
+      <h2 id="manual-session-title">手動セッションを追加</h2>
+      <form
+        class="history-range-form"
+        novalidate
+        onsubmit={(event) => {
+          event.preventDefault();
+          addManual();
+        }}
+      >
+        <div class="history-range-fields">
+          <DateTimeSelect
+            label="開始日時"
+            value={manualStart}
+            disabled={manualSessionSaving}
+            invalid={Boolean(manualSessionError)}
+            onchange={(value) => {
+              manualStart = value;
+              manualSessionError = '';
+            }}
+          />
+          <DateTimeSelect
+            label="終了日時"
+            value={manualEnd}
+            disabled={manualSessionSaving}
+            invalid={Boolean(manualSessionError)}
+            onchange={(value) => {
+              manualEnd = value;
+              manualSessionError = '';
+            }}
+          />
+        </div>
+        <div class="actions">
+          <button type="button" disabled={manualSessionSaving} onclick={cancelManualSession}
+            >キャンセル</button
+          ><button class="primary" type="submit" disabled={manualSessionSaving}
+            >{manualSessionSaving ? '追加中…' : '追加'}</button
+          >
+        </div>
+        {#if manualSessionError}<p class="form-error" role="alert">{manualSessionError}</p>{/if}
+      </form>
     </div>
   </div>{/if}
 {#if selected}<div class="modal">
