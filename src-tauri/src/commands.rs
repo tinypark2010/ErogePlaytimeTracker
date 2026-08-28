@@ -120,6 +120,28 @@ pub fn update_game(state: State<AppState>, id: i64, input: UpdateGameInput) -> C
     state.db.update_game(id, &input).map_err(err)
 }
 #[tauri::command]
+pub fn update_game_thumbnail(
+    state: State<AppState>,
+    game_id: i64,
+    thumbnail_path: Option<String>,
+) -> Cmd<()> {
+    let local_thumbnail = thumbnail_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    let stored_thumbnail = local_thumbnail
+        .map(|path| {
+            crate::thumbnail::import_local(path, &state.thumbnails)
+                .map(|path| path.to_string_lossy().to_string())
+        })
+        .transpose()
+        .map_err(err)?;
+    state
+        .db
+        .update_game_thumbnail(game_id, stored_thumbnail.as_deref())
+        .map_err(err)
+}
+#[tauri::command]
 pub fn update_game_play_status(state: State<AppState>, id: i64, status: String) -> Cmd<()> {
     state.db.update_play_status(id, &status).map_err(err)
 }
@@ -336,10 +358,12 @@ pub async fn refresh_game_metadata(state: State<'_, AppState>, game_id: i64) -> 
         .await
         .map_err(err)?;
     let thumb = if let Some(url) = &m.thumbnail_url {
-        crate::thumbnail::download(&state.http, url, &state.thumbnails)
-            .await
-            .ok()
-            .map(|p| p.to_string_lossy().to_string())
+        Some(
+            crate::thumbnail::download(&state.http, url, &state.thumbnails)
+                .await
+                .map(|path| path.to_string_lossy().to_string())
+                .map_err(err)?,
+        )
     } else {
         None
     };
