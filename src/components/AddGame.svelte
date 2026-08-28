@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
+  import DateTimeSelect from './DateTimeSelect.svelte';
   import ThumbnailCropper from './ThumbnailCropper.svelte';
   import { api } from '../lib/api';
   import { imageSrc } from '../lib/time';
@@ -11,6 +12,8 @@
     title = '',
     brand = '',
     release_date = '',
+    releaseDateComplete = true,
+    releaseDateError = '',
     thumbnail_path = '',
     paths = '',
     metadata: Metadata | null = null,
@@ -40,6 +43,8 @@
       title = metadata.title;
       brand = metadata.brand ?? '';
       release_date = metadata.release_date ?? '';
+      releaseDateComplete = true;
+      releaseDateError = '';
       thumbnail_path = metadata.thumbnail_path ?? '';
       showToast('ErogameScapeからゲーム情報を取得しました');
     } catch (e) {
@@ -51,6 +56,10 @@
   }
   async function save() {
     if (!title.trim() || fetchingMeta || importingThumbnail || saving) return;
+    if (!releaseDateComplete) {
+      releaseDateError = '発売日は年・月・日をすべて選択してください。';
+      return;
+    }
     saving = true;
     error = '';
     try {
@@ -135,7 +144,22 @@
   <p class="hint">取得できない場合も下の項目から手動登録できます。</p>
   <label>タイトル<input bind:value={title} /></label><label
     >ブランド<input bind:value={brand} /></label
-  ><label>発売日<input type="date" bind:value={release_date} /></label>
+  >
+  <div class="form-field">
+    <DateTimeSelect
+      label="発売日"
+      value={release_date}
+      withTime={false}
+      optional
+      invalid={Boolean(releaseDateError)}
+      onchange={(value, complete) => {
+        release_date = value;
+        releaseDateComplete = complete;
+        releaseDateError = '';
+      }}
+    />
+    {#if releaseDateError}<p class="form-error" role="alert">{releaseDateError}</p>{/if}
+  </div>
   <div class="form-field">
     <span class="field-title">サムネイル</span>
     <div class="thumbnail-editor">
