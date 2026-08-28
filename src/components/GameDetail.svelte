@@ -64,6 +64,9 @@
     editingGame = false,
     editTitle = '',
     editBrand = '',
+    editReleaseDate = '',
+    editReleaseDateComplete = true,
+    editReleaseDateError = '',
     editSourceUrl = '',
     sessionEditOpen = false,
     sessionStart = '',
@@ -535,16 +538,27 @@
     if (!game) return;
     editTitle = game.title;
     editBrand = game.brand ?? '';
+    editReleaseDate = game.release_date ?? '';
+    editReleaseDateComplete = true;
+    editReleaseDateError = '';
     editSourceUrl = game.source_url ?? '';
     editingGame = true;
   }
+  function cancelGameEdit() {
+    editingGame = false;
+    editReleaseDateError = '';
+  }
   async function saveGameInfo() {
     if (!game || !editTitle.trim()) return showToast('タイトルを入力してください', true);
+    if (!editReleaseDateComplete) {
+      editReleaseDateError = '発売日は年・月・日をすべて選択してください。';
+      return;
+    }
     try {
       await api.updateGame(game.id, {
         title: editTitle.trim(),
         brand: editBrand.trim() || undefined,
-        release_date: game.release_date ?? undefined,
+        release_date: editReleaseDate || undefined,
         source_url: editSourceUrl.trim() || undefined,
       });
       editingGame = false;
@@ -1267,7 +1281,25 @@
       {#if editingGame}<div class="game-info-form">
           <label>タイトル<input bind:value={editTitle} /></label><label
             >ブランド<input bind:value={editBrand} placeholder="未設定" /></label
-          ><label
+          >
+          <div class="game-info-form-field">
+            <DateTimeSelect
+              label="発売日"
+              value={editReleaseDate}
+              withTime={false}
+              optional
+              invalid={Boolean(editReleaseDateError)}
+              onchange={(value, complete) => {
+                editReleaseDate = value;
+                editReleaseDateComplete = complete;
+                editReleaseDateError = '';
+              }}
+            />
+            {#if editReleaseDateError}<p class="form-error" role="alert">
+                {editReleaseDateError}
+              </p>{/if}
+          </div>
+          <label
             >ErogameScape URL<input
               type="url"
               bind:value={editSourceUrl}
@@ -1276,7 +1308,7 @@
           >
           <div class="actions">
             <button class="primary" onclick={saveGameInfo}>保存</button><button
-              onclick={() => (editingGame = false)}>キャンセル</button
+              onclick={cancelGameEdit}>キャンセル</button
             >
           </div>
         </div>{:else}<dl>
@@ -1287,6 +1319,10 @@
           <div>
             <dt>ブランド</dt>
             <dd>{game.brand ?? '未設定'}</dd>
+          </div>
+          <div>
+            <dt>発売日</dt>
+            <dd>{game.release_date ?? '未設定'}</dd>
           </div>
           <div>
             <dt>プレイ状況</dt>
