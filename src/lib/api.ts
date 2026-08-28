@@ -64,7 +64,7 @@ export const api = {
   deleteAllSessions: (gameId: number) => invoke<number>('delete_all_sessions', { gameId }),
   createInterval: (sessionId: number, start: string, end: string) =>
     invoke<number>('create_background_interval', { sessionId, start, end }),
-  updateInterval: (id: number, start: string, end: string) =>
+  updateInterval: (id: number, start: string, end: string | null) =>
     invoke<void>('update_background_interval', { id, start, end }),
   deleteInterval: (id: number) => invoke<void>('delete_background_interval', { id }),
   timestamps: (gameId: number) => invoke<GameTimestamp[]>('list_game_timestamps', { gameId }),

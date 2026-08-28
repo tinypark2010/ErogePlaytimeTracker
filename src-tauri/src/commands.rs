@@ -276,9 +276,12 @@ pub fn update_background_interval(
     state: State<AppState>,
     id: i64,
     start: String,
-    end: String,
+    end: Option<String>,
 ) -> Cmd<()> {
-    state.db.update_interval(id, &start, &end).map_err(err)
+    state
+        .db
+        .update_interval(id, &start, end.as_deref())
+        .map_err(err)
 }
 #[tauri::command]
 pub fn delete_background_interval(state: State<AppState>, id: i64) -> Cmd<()> {

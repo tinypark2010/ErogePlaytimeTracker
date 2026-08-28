@@ -23,11 +23,11 @@ export function validateManualSession(start: string, end: string) {
 }
 
 export function validateSessionEdit(start: string, end: string, intervals: HistoryRange[]) {
-  if (!start) return '開始日時を入力してください。';
+  if (!start || !end) return '開始日時と終了日時を入力してください。';
   const startMs = timestamp(start);
-  const endMs = end ? timestamp(end) : null;
-  if (startMs === null || (end && endMs === null)) return '日時を正しく入力してください。';
-  if (endMs !== null && endMs < startMs) return '終了日時は開始日時以降にしてください。';
+  const endMs = timestamp(end);
+  if (startMs === null || endMs === null) return '日時を正しく入力してください。';
+  if (endMs < startMs) return '終了日時は開始日時以降にしてください。';
 
   const intervalOutsideSession = intervals.some((interval) => {
     const intervalStartMs = timestamp(interval.start);
@@ -35,7 +35,8 @@ export function validateSessionEdit(start: string, end: string, intervals: Histo
     return (
       intervalStartMs === null ||
       intervalStartMs < startMs ||
-      (endMs !== null && (intervalEndMs === null || intervalEndMs > endMs))
+      intervalEndMs === null ||
+      intervalEndMs > endMs
     );
   });
   return intervalOutsideSession
@@ -43,24 +44,46 @@ export function validateSessionEdit(start: string, end: string, intervals: Histo
     : '';
 }
 
+export function validateRunningSessionEdit(start: string, intervals: HistoryRange[]) {
+  if (!start) return '開始日時を入力してください。';
+  const startMs = timestamp(start);
+  if (startMs === null) return '日時を正しく入力してください。';
+  const intervalOutsideSession = intervals.some((interval) => {
+    const intervalStartMs = timestamp(interval.start);
+    return intervalStartMs === null || intervalStartMs < startMs;
+  });
+  return intervalOutsideSession
+    ? '開始日時には、すべての除外区間を含む範囲を指定してください。'
+    : '';
+}
+
 export function validateBackgroundInterval(
   start: string,
-  end: string,
+  end: string | null,
   session: HistoryRange,
   intervals: HistoryRange[],
   excludedIntervalId?: number,
 ) {
-  const rangeError = validateRange(start, end, '除外区間の開始日時と終了日時を入力してください。');
-  if (rangeError) return rangeError;
+  if (end === null) {
+    if (!start) return '除外区間の開始日時を入力してください。';
+    if (timestamp(start) === null) return '日時を正しく入力してください。';
+  } else {
+    const rangeError = validateRange(
+      start,
+      end,
+      '除外区間の開始日時と終了日時を入力してください。',
+    );
+    if (rangeError) return rangeError;
+  }
 
   const startMs = timestamp(start)!;
-  const endMs = timestamp(end)!;
+  const endMs = end === null ? Number.POSITIVE_INFINITY : timestamp(end)!;
   const sessionStartMs = timestamp(session.start);
   const sessionEndMs = session.end ? timestamp(session.end) : null;
   if (
     sessionStartMs === null ||
     startMs < sessionStartMs ||
-    (sessionEndMs !== null && endMs > sessionEndMs)
+    (sessionEndMs !== null && (end === null || endMs > sessionEndMs))
   ) {
     return '除外区間はセッションの開始・終了日時の範囲内で入力してください。';
   }
