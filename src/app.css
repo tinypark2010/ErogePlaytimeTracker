@@ -277,6 +277,65 @@ small {
   color: #aaa3b4;
   font-size: 0.85rem;
 }
+.date-time-select {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.date-time-select legend {
+  margin-bottom: 0.35rem;
+  padding: 0;
+  color: #aaa3b4;
+  font-size: 0.85rem;
+}
+.date-time-select-fields {
+  display: grid;
+  grid-template-columns: minmax(68px, 1.2fr) repeat(2, minmax(48px, 0.8fr)) 1px repeat(
+      3,
+      minmax(48px, 0.8fr)
+    );
+  gap: 0.35rem;
+  align-items: end;
+}
+.date-time-select.date-only .date-time-select-fields {
+  grid-template-columns: minmax(80px, 1.25fr) repeat(2, minmax(60px, 1fr));
+  max-width: 380px;
+}
+.date-time-select-fields label,
+.form .date-time-select-fields label,
+.editor .date-time-select-fields label {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  margin: 0;
+  color: #aaa3b4;
+  font-size: 0.75rem;
+}
+.date-time-select-fields select {
+  min-width: 0;
+  padding: 0.55rem 0.3rem;
+  font-variant-numeric: tabular-nums;
+}
+.date-time-separator {
+  align-self: stretch;
+  width: 1px;
+  margin: 1.25rem 0 0.15rem;
+  background: #474252;
+}
+.date-time-clear {
+  margin-top: 0.45rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+}
+.date-time-select.invalid select,
+:root[data-theme] .date-time-select select[aria-invalid='true'] {
+  border-color: #d86471;
+  box-shadow: 0 0 0 1px #d8647155;
+}
+.date-time-select:disabled {
+  opacity: 0.68;
+}
 .history-range-form .actions {
   margin-top: 0.75rem;
 }
@@ -307,6 +366,13 @@ small {
 }
 :root[data-theme]:not([data-theme='dark']) .history-range-fields label {
   color: #706978;
+}
+:root[data-theme]:not([data-theme='dark']) .date-time-select legend,
+:root[data-theme]:not([data-theme='dark']) .date-time-select-fields label {
+  color: #706978;
+}
+:root[data-theme]:not([data-theme='dark']) .date-time-separator {
+  background: #c8c2ce;
 }
 :root[data-theme]:not([data-theme='dark']) .session-range-form {
   border-color: #d8d2de;
@@ -825,6 +891,12 @@ small {
 @media (max-width: 800px) {
   .toolbar {
     grid-template-columns: 1fr 1fr;
+  }
+  .date-time-select-fields {
+    grid-template-columns: minmax(70px, 1.2fr) repeat(2, minmax(52px, 1fr));
+  }
+  .date-time-separator {
+    display: none;
   }
   .tracking-status {
     font-size: 12px;
