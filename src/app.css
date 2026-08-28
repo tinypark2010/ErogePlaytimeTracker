@@ -252,6 +252,16 @@ small {
   overflow: auto;
   position: relative;
 }
+.manual-session-modal {
+  z-index: 12;
+}
+.manual-session-dialog {
+  width: min(620px, 94vw);
+}
+.manual-session-dialog .history-range-fields {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 560px;
+}
 .close {
   position: absolute;
   right: 1rem;
