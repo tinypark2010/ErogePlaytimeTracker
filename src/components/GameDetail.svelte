@@ -1865,7 +1865,6 @@
         onclick={closeSessionEditor}>×</button
       >
       <h2 id="session-detail-title">セッション詳細</h2>
-      <p class="hint">Session #{selected.id}</p>
       <div class="session-breakdown">
         <span
           ><small>起動時間</small><strong
