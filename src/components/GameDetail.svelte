@@ -4,6 +4,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import DateTimeSelect from './DateTimeSelect.svelte';
   import ThumbnailCropEditor from './ThumbnailCropEditor.svelte';
+  import HistoryDataRow from './HistoryDataRow.svelte';
   import { api } from '../lib/api';
   import {
     validateBackgroundInterval,
@@ -420,6 +421,11 @@
       start: interval.started_at,
       end: interval.ended_at,
     }));
+  }
+  function intervalDurationSeconds(interval: BackgroundInterval) {
+    const start = new Date(interval.started_at).getTime();
+    const end = interval.ended_at ? new Date(interval.ended_at).getTime() : nowMs;
+    return Math.max(0, Math.floor((end - start) / 1000));
   }
   function beginEditInterval(interval: BackgroundInterval) {
     editingIntervalId = interval.id;
@@ -1478,15 +1484,13 @@
           ></label
         >
       </div>
-      {#each pagedSessions as s}<button
-          class:selected={selected?.id === s.id}
-          class:live-interval={!s.exited_at}
-          class="session"
-          onclick={() => beginSessionDetail(s)}
-          ><span
-            >{local(s.launched_at)} → {local(s.exited_at)}{s.needs_review ? ' ・ 要確認' : ''}</span
-          ><strong>{duration(s.playtime_seconds)}</strong></button
-        >{/each}
+      {#each pagedSessions as s}<HistoryDataRow
+          label={`${local(s.launched_at)} → ${local(s.exited_at)}${s.needs_review ? ' ・ 要確認' : ''}`}
+          seconds={s.playtime_seconds}
+          selected={selected?.id === s.id}
+          recording={!s.exited_at}
+          onselect={() => beginSessionDetail(s)}
+        />{/each}
       {#if sessionPageCount > 1}<div class="pagination" aria-label="セッション履歴のページ移動">
           <button disabled={sessionPage === 1} onclick={() => (sessionPage -= 1)}>← 前へ</button>
           <span>{sessionPage} / {sessionPageCount}</span>
@@ -1853,15 +1857,15 @@
         アプリがバックグラウンドにあった区間です。起動時間からこの合計を除外します。
       </p>
       {#if intervalListError}<p class="form-error" role="alert">{intervalListError}</p>{/if}
-      {#each intervals as i (i.id)}<button
-          class:live-interval={!i.ended_at}
-          class="interval-summary"
+      {#each intervals as i (i.id)}<HistoryDataRow
+          label={`${local(i.started_at)} ～ ${
+            i.ended_at ? local(i.ended_at) : 'バックグラウンド時間を記録中'
+          }`}
+          seconds={intervalDurationSeconds(i)}
+          recording={!i.ended_at}
           disabled={savingIntervalId === i.id}
-          onclick={() => beginEditInterval(i)}
-          >{local(i.started_at)} ～ {i.ended_at
-            ? local(i.ended_at)
-            : 'バックグラウンド時間を記録中'}</button
-        >{/each}
+          onselect={() => beginEditInterval(i)}
+        />{/each}
       <button type="button" onclick={beginAddInterval}>除外区間を追加</button>
     </div>
   </div>{/if}
