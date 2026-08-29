@@ -811,6 +811,25 @@ small {
 .session-detail-actions {
   margin-bottom: 1rem;
 }
+.session-review-notice {
+  margin: 0 0 1rem;
+  padding: 0.15rem 0 0.15rem 0.75rem;
+  border-left: 3px solid #c3913d;
+}
+.session-review-notice strong {
+  color: #d8b26d;
+}
+.session-review-notice p {
+  max-width: 720px;
+  margin: 0.35rem 0;
+  line-height: 1.6;
+}
+.session-review-notice button {
+  margin-top: 0.35rem;
+}
+:root[data-theme]:not([data-theme='dark']) .session-review-notice strong {
+  color: #78500e;
+}
 .interval-editor-actions {
   width: 100%;
 }

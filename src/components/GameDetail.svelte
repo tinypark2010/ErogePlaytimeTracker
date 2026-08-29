@@ -68,6 +68,7 @@
     sessionActionError = '',
     intervalListError = '',
     sessionSaving = false,
+    sessionReviewSaving = false,
     newIntervalOpen = false,
     newIntervalStart = '',
     newIntervalEnd = '',
@@ -318,6 +319,20 @@
       await load();
     } catch {
       sessionActionError = 'セッションを削除できませんでした。もう一度お試しください。';
+    }
+  }
+  async function confirmSessionReview() {
+    if (!selected?.needs_review || sessionReviewSaving) return;
+    sessionReviewSaving = true;
+    sessionActionError = '';
+    try {
+      await api.confirmSessionReview(selected.id);
+      await load();
+      showToast('セッションを確認済みにしました');
+    } catch {
+      sessionActionError = '要確認を解除できませんでした。もう一度お試しください。';
+    } finally {
+      sessionReviewSaving = false;
     }
   }
   async function removeAllSessions() {
@@ -1118,10 +1133,29 @@
       <button
         class="close"
         aria-label="閉じる"
-        disabled={sessionSaving || savingIntervalId !== null}
+        disabled={sessionSaving || sessionReviewSaving || savingIntervalId !== null}
         onclick={closeSessionEditor}>×</button
       >
       <h2 id="session-detail-title">セッション詳細</h2>
+      {#if selected.needs_review}<div
+          class="session-review-notice"
+          aria-labelledby="session-review-title"
+        >
+          <strong id="session-review-title">このセッションは確認が必要です</strong>
+          <p>
+            前回、アプリがゲームの終了を確認する前に計測が中断されたため、最後に記録できた時刻を終了日時として復旧しています。アプリやPCが予期せず終了した場合などに表示されます。
+          </p>
+          <p>
+            開始・終了日時と除外時間を確認し、必要なら編集してください。記録に問題がなければ確認済みにできます。
+          </p>
+          <button
+            class="primary"
+            type="button"
+            disabled={sessionReviewSaving || sessionSaving || savingIntervalId !== null}
+            onclick={confirmSessionReview}
+            >{sessionReviewSaving ? '確認中…' : '確認済みにする'}</button
+          >
+        </div>{/if}
       <div class="session-breakdown">
         <span
           ><small>起動時間</small><strong
@@ -1139,10 +1173,15 @@
         <span><small>終了日時</small><strong>{local(selected.exited_at)}</strong></span>
       </div>
       <div class="actions session-detail-actions">
-        <button class="primary" type="button" onclick={beginSessionEdit}>セッションを編集</button
+        <button
+          class="primary"
+          type="button"
+          disabled={sessionReviewSaving}
+          onclick={beginSessionEdit}>セッションを編集</button
         ><DeleteButton
           title="セッションの削除"
           message={`${local(selected.launched_at)} から始まるセッションを削除します。除外時間の記録も削除され、元に戻せません。`}
+          disabled={sessionReviewSaving}
           onconfirm={removeSession}
         />
       </div>
@@ -1158,10 +1197,12 @@
           }`}
           seconds={intervalDurationSeconds(i)}
           recording={!i.ended_at}
-          disabled={savingIntervalId === i.id}
+          disabled={sessionReviewSaving || savingIntervalId === i.id}
           onselect={() => beginEditInterval(i)}
         />{/each}
-      <button type="button" onclick={beginAddInterval}>除外区間を追加</button>
+      <button type="button" disabled={sessionReviewSaving} onclick={beginAddInterval}
+        >除外区間を追加</button
+      >
     </div>
   </div>{/if}
 {#if sessionEditOpen && selected}<div class="modal history-entry-modal">
