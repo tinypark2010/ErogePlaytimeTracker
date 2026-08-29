@@ -28,7 +28,6 @@ export const api = {
       descending,
     }),
   listBrands: () => invoke<string[]>('list_brands'),
-  systemFonts: () => invoke<string[]>('list_system_fonts'),
   getGame: (id: number) => invoke<GameDetail>('get_game', { id }),
   createGame: (input: {
     title: string;
@@ -77,10 +76,6 @@ export const api = {
   deleteScreenshot: (id: number) => invoke<void>('delete_game_screenshot', { id }),
   openScreenshotDirectory: (gameId: number) =>
     invoke<void>('open_screenshot_directory', { gameId }),
-  saveSocialImage: (gameId: number, pngBase64: string) =>
-    invoke<string>('save_social_image', { gameId, pngBase64 }),
-  openSocialImageDirectory: (gameId: number) =>
-    invoke<void>('open_social_image_directory', { gameId }),
   fetchMetadata: (value: string) => invoke<Metadata>('fetch_erogamescape_metadata', { value }),
   importThumbnail: (path: string) => invoke<string>('import_thumbnail', { path }),
   saveCroppedThumbnail: (pngBase64: string) =>
