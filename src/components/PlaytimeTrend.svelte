@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
+    chartAxisTicks,
     compactDuration,
     dailyTrend,
     formatDateKey,
@@ -14,6 +15,7 @@
   export let kind: StatisticsPeriodKind;
 
   const width = 900;
+  const chartViewHeight = 180;
   const plotTop = 14;
   const plotBottom = 140;
   const plotHeight = plotBottom - plotTop;
@@ -30,6 +32,7 @@
     '#4a9b83',
   ];
   let chartElement: HTMLDivElement;
+  let chartSvgElement: SVGSVGElement;
   let viewportElement: HTMLDivElement;
   let tooltipElement: HTMLDivElement;
   let zoom = 1;
@@ -37,6 +40,9 @@
   let pinnedIndex: number | null = null;
   let activeIndex: number | null = null;
   let currentDays = days;
+  let chartPixelHeight = chartViewHeight;
+  let chartPixelScale = 1;
+  let chartPixelOffset = 0;
 
   $: points = dailyTrend(days);
   $: if (days !== currentDays) {
@@ -50,8 +56,12 @@
   $: maximumZoom = Math.min(32, Math.max(4, points.length / 45));
   $: if (zoom > maximumZoom) zoom = maximumZoom;
   $: chartWidth = width * zoom;
-  $: maximumDaily = Math.max(1, ...points.map((point) => point.playtime_seconds));
-  $: maximumCumulative = Math.max(1, ...points.map((point) => point.cumulative_seconds));
+  $: dailyAxisTicks = chartAxisTicks(Math.max(0, ...points.map((point) => point.playtime_seconds)));
+  $: cumulativeAxisTicks = chartAxisTicks(
+    Math.max(0, ...points.map((point) => point.cumulative_seconds)),
+  );
+  $: maximumDaily = dailyAxisTicks[dailyAxisTicks.length - 1].value;
+  $: maximumCumulative = cumulativeAxisTicks[cumulativeAxisTicks.length - 1].value;
   $: labelStep = Math.max(1, Math.ceil(points.length / (8 * zoom)));
   $: barStrokeWidth = Math.max(
     0.45,
@@ -68,6 +78,7 @@
     : 'データなし';
   $: tooltipPosition =
     activeIndex === null ? 50 : ((activeIndex + 0.5) / Math.max(1, points.length)) * 100;
+  $: if (chartSvgElement && chartWidth) requestAnimationFrame(syncAxisLayout);
 
   onMount(() => {
     function handleDocumentClick(event: MouseEvent) {
@@ -79,11 +90,33 @@
 
     document.addEventListener('click', handleDocumentClick);
     viewportElement.addEventListener('wheel', handleWheel, { passive: false });
+    const resizeObserver = new ResizeObserver(syncAxisLayout);
+    resizeObserver.observe(chartSvgElement);
+    syncAxisLayout();
     return () => {
       document.removeEventListener('click', handleDocumentClick);
       viewportElement.removeEventListener('wheel', handleWheel);
+      resizeObserver.disconnect();
     };
   });
+
+  function syncAxisLayout() {
+    if (!chartSvgElement) return;
+    const bounds = chartSvgElement.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const scale = Math.min(bounds.width / chartWidth, bounds.height / chartViewHeight);
+    chartPixelHeight = bounds.height;
+    chartPixelScale = scale;
+    chartPixelOffset = (bounds.height - chartViewHeight * scale) / 2;
+  }
+
+  function axisTickTop(ratio: number) {
+    return chartPixelOffset + (plotBottom - ratio * plotHeight) * chartPixelScale;
+  }
+
+  function axisTitleTop() {
+    return chartPixelOffset + 164 * chartPixelScale;
+  }
 
   function pointX(index: number, pointCount: number, graphWidth: number) {
     return ((index + 0.5) / Math.max(1, pointCount)) * graphWidth;
@@ -207,6 +240,16 @@
 </script>
 
 <div class="statistics-combined-chart">
+  <div
+    class="statistics-chart-y-axis daily"
+    style={`height: ${chartPixelHeight}px`}
+    aria-hidden="true"
+  >
+    {#each dailyAxisTicks as tick}<span
+        class="statistics-chart-y-tick"
+        style={`top: ${axisTickTop(tick.ratio)}px`}>{compactDuration(tick.value)}</span
+      >{/each}<span class="statistics-chart-y-title" style={`top: ${axisTitleTop()}px`}>日別</span>
+  </div>
   <div bind:this={viewportElement} class:zoomed={zoom > 1.01} class="statistics-chart-viewport">
     <div class="statistics-chart-stage" style={`width: ${zoom * 100}%`}>
       <div
@@ -230,8 +273,9 @@
         onclick={handleChartClick}
       >
         <svg
+          bind:this={chartSvgElement}
           class="statistics-chart"
-          viewBox={`0 0 ${chartWidth} 180`}
+          viewBox={`0 0 ${chartWidth} ${chartViewHeight}`}
           role="img"
           aria-label="日別プレイ時間と累計プレイ時間を重ねたグラフ"
         >
@@ -242,13 +286,17 @@
             x2={chartWidth}
             y2={plotBottom}
           />
-          <line
-            class="statistics-chart-gridline"
-            x1="0"
-            y1={plotTop + plotHeight / 2}
-            x2={chartWidth}
-            y2={plotTop + plotHeight / 2}
-          />
+          {#each dailyAxisTicks as tick}
+            {#if tick.ratio > 0}
+              <line
+                class="statistics-chart-gridline"
+                x1="0"
+                y1={plotBottom - tick.ratio * plotHeight}
+                x2={chartWidth}
+                y2={plotBottom - tick.ratio * plotHeight}
+              />
+            {/if}
+          {/each}
           {#each stackedBars as bar}
             <line
               class="statistics-chart-bar-segment"
@@ -332,4 +380,14 @@
     <span class="statistics-chart-edge-fade end" aria-hidden="true"></span>
     <span class="statistics-chart-zoom" aria-live="polite">{Math.round(zoom * 100)}%</span>
   {/if}
+  <div
+    class="statistics-chart-y-axis cumulative"
+    style={`height: ${chartPixelHeight}px`}
+    aria-hidden="true"
+  >
+    {#each cumulativeAxisTicks as tick}<span
+        class="statistics-chart-y-tick"
+        style={`top: ${axisTickTop(tick.ratio)}px`}>{compactDuration(tick.value)}</span
+      >{/each}<span class="statistics-chart-y-title" style={`top: ${axisTitleTop()}px`}>累計</span>
+  </div>
 </div>

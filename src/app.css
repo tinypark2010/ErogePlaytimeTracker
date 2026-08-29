@@ -2862,11 +2862,49 @@ button.primary:disabled:hover {
   color: var(--statistics-muted);
 }
 .statistics-combined-chart {
+  --statistics-chart-side-padding: clamp(0.4rem, 2vw, 1.4rem);
+  --statistics-chart-axis-width: clamp(52px, 6vw, 64px);
   position: relative;
   width: min(100%, 940px);
   margin: 0.8rem auto 0;
-  padding: 0 clamp(0.4rem, 2vw, 1.4rem);
+  padding: 0
+    calc(var(--statistics-chart-side-padding) + var(--statistics-chart-axis-width) + 0.45rem);
   box-sizing: border-box;
+}
+.statistics-chart-y-axis {
+  position: absolute;
+  top: 0;
+  width: var(--statistics-chart-axis-width);
+  color: var(--statistics-muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.statistics-chart-y-axis.daily {
+  left: var(--statistics-chart-side-padding);
+  text-align: right;
+}
+.statistics-chart-y-axis.cumulative {
+  right: var(--statistics-chart-side-padding);
+  text-align: left;
+}
+.statistics-chart-y-tick,
+.statistics-chart-y-title {
+  position: absolute;
+  right: 0;
+  left: 0;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateY(-50%);
+}
+.statistics-chart-y-title {
+  font-weight: 700;
+}
+.statistics-chart-y-axis.daily .statistics-chart-y-title {
+  color: var(--statistics-accent);
+}
+.statistics-chart-y-axis.cumulative .statistics-chart-y-title {
+  color: var(--statistics-cumulative);
 }
 .statistics-chart-stage {
   position: relative;
@@ -2897,7 +2935,7 @@ button.primary:disabled:hover {
 .statistics-chart-zoom {
   position: absolute;
   top: 0.35rem;
-  right: clamp(0.65rem, 2vw, 1.65rem);
+  right: calc(var(--statistics-chart-side-padding) + var(--statistics-chart-axis-width) + 0.8rem);
   z-index: 3;
   padding: 0.15rem 0.35rem;
   border-radius: 3px;
@@ -2916,11 +2954,11 @@ button.primary:disabled:hover {
   pointer-events: none;
 }
 .statistics-chart-edge-fade.start {
-  left: clamp(0.4rem, 2vw, 1.4rem);
+  left: calc(var(--statistics-chart-side-padding) + var(--statistics-chart-axis-width) + 0.45rem);
   background: linear-gradient(90deg, var(--statistics-page-background), transparent);
 }
 .statistics-chart-edge-fade.end {
-  right: clamp(0.4rem, 2vw, 1.4rem);
+  right: calc(var(--statistics-chart-side-padding) + var(--statistics-chart-axis-width) + 0.45rem);
   background: linear-gradient(270deg, var(--statistics-page-background), transparent);
 }
 .statistics-chart-interaction {

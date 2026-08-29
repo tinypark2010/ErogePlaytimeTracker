@@ -4,6 +4,11 @@ export interface DailyTrendPoint extends StatisticsDay {
   cumulative_seconds: number;
 }
 
+export interface ChartAxisTick {
+  ratio: number;
+  value: number;
+}
+
 export function compactDuration(seconds: number) {
   const totalMinutes = Math.floor(Math.max(0, seconds) / 60);
   const hours = Math.floor(totalMinutes / 60);
@@ -24,6 +29,14 @@ export function dailyTrend(days: StatisticsDay[]): DailyTrendPoint[] {
     cumulative += day.playtime_seconds;
     return { ...day, cumulative_seconds: cumulative };
   });
+}
+
+export function chartAxisTicks(maximumSeconds: number): ChartAxisTick[] {
+  const maximum = Math.max(60, Math.round(maximumSeconds));
+  return [0, 1 / 3, 2 / 3, 1].map((ratio) => ({
+    ratio,
+    value: Math.round(maximum * ratio),
+  }));
 }
 
 export function nextChartZoom(current: number, maximum: number, deltaY: number, deltaMode: number) {
