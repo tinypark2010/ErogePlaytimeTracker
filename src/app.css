@@ -2634,9 +2634,6 @@ button.primary:disabled:hover {
   gap: 0.5rem;
   padding: 0.55rem 0.7rem;
 }
-.screenshot-card > div button {
-  padding: 0.3rem 0.55rem;
-}
 .screenshot-viewer {
   position: relative;
   width: min(95vw, 1500px);
