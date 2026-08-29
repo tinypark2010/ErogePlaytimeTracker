@@ -9,7 +9,7 @@
 ## Repository map
 
 - `src/main.ts` → `src/App.svelte`: frontend entry point と画面切替、tracking status の polling/event 購読。
-- `src/components/`: UI。`GameDetail.svelte` は履歴、timestamp、screenshot、SNS画像作成も担当する。
+- `src/components/`: UI。`GameDetail.svelte` は履歴、timestamp、screenshotも担当する。
 - `src/lib/api.ts`: frontend から利用する Tauri command wrapper。`src/lib/types.ts` は Rust の serialized model と対応する。
 - `src/app.css`: 全 component 共通の global styles と4 theme。component-local `<style>` は現在使っていない。
 - `src-tauri/src/main.rs` → `src-tauri/src/lib.rs`: native entry point、plugin/state/tray/data directory 初期化、command 登録。
@@ -101,7 +101,7 @@ npm run build
 
 ## Database and compatibility
 
-- SQLite file は `%LOCALAPPDATA%\ErogePlaytimeTracker\app.db`。foreign keys と WAL を有効化し、UTC RFC 3339 strings を保存する。thumbnail、screenshot、SNS画像も同じ root 配下。
+- SQLite file は `%LOCALAPPDATA%\ErogePlaytimeTracker\app.db`。foreign keys と WAL を有効化し、UTC RFC 3339 strings を保存する。thumbnail、screenshotも同じ root 配下。
 - schema 変更は `database/mod.rs` に次の numbered migration constant と `schema_migrations` 適用 block を追加する。既に配布済みの `MIGRATION_1`–`MIGRATION_5` を書き換えたり、起動時の ad-hoc schema mutation に置き換えない。
 - `background_intervals` が現行計算の正本。`focus_intervals` は旧 version への rollback compatibility mirror なので削除しない。closed session の background/session 編集では `rebuild_focus_mirror` と migration validation を保つ。
 - 旧 focus data は補集合を background として移行し、SQLite と同じ秒丸めで playtime が一致した場合だけ `background_migrated=1` にする。この検証を緩めない。
