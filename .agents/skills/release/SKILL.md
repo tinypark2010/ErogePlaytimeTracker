@@ -9,7 +9,7 @@ Handle release preparation separately from publication so that changing versions
 
 ## Establish the release state
 
-Read the Release section of `README.md` and `.github/workflows/release.yml`. Also read the root `AGENTS.md` and `docs/development-workflow.md` when they exist. Treat the files and workflow as the current source of truth rather than copying old commands from prior releases.
+Read the Release section of `docs/technical-notes.md` and `.github/workflows/release.yml`. Also read the root `AGENTS.md` and `docs/development-workflow.md` when they exist. Treat the files and workflow as the current source of truth rather than copying old commands from prior releases.
 
 Inspect the current branch, working tree, `origin/main`, existing tags, and the five version-bearing files:
 

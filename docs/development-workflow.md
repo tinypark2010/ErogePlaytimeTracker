@@ -1,6 +1,6 @@
 # Development workflow
 
-この文書はbranch、commit、pull request運用のsource of truthです。repository固有のbuild/test方法はルートの [AGENTS.md](../AGENTS.md) と [README.md](../README.md) を参照してください。
+この文書はbranch、commit、pull request運用のsource of truthです。repository固有のbuild/test方法は [AGENTS.md](../AGENTS.md) と [technical notes](technical-notes.md) を参照してください。
 
 ## Protected integration branch
 
