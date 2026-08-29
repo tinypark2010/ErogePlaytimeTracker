@@ -9,69 +9,6 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 #[tauri::command]
-#[cfg(windows)]
-pub fn list_system_fonts() -> Cmd<Vec<String>> {
-    use std::collections::BTreeSet;
-    use windows::Win32::{
-        Foundation::LPARAM,
-        Graphics::Gdi::{
-            EnumFontFamiliesExW, FONT_CHARSET, GetDC, LOGFONTW, ReleaseDC, TEXTMETRICW,
-        },
-    };
-
-    unsafe extern "system" fn collect_font(
-        font: *const LOGFONTW,
-        _metric: *const TEXTMETRICW,
-        _font_type: u32,
-        fonts: LPARAM,
-    ) -> i32 {
-        let values = unsafe { &mut *(fonts.0 as *mut BTreeSet<String>) };
-        let face = unsafe { &(*font).lfFaceName };
-        let length = face
-            .iter()
-            .position(|value| *value == 0)
-            .unwrap_or(face.len());
-        let name = String::from_utf16_lossy(&face[..length]);
-        if !name.is_empty() && !name.starts_with('@') {
-            values.insert(name);
-        }
-        1
-    }
-
-    let mut fonts = BTreeSet::new();
-    unsafe {
-        let dc = GetDC(None);
-        if dc.is_invalid() {
-            return Err("Windowsのフォント一覧を取得できませんでした".into());
-        }
-        // GDI filters families by character set. Query every character set commonly
-        // registered by Windows so Latin, Japanese, CJK and symbol fonts are all included.
-        for charset in [
-            0, 1, 2, 77, 128, 129, 130, 134, 136, 161, 162, 163, 177, 178, 186, 204, 222, 238, 255,
-        ] {
-            let query = LOGFONTW {
-                lfCharSet: FONT_CHARSET(charset),
-                ..Default::default()
-            };
-            EnumFontFamiliesExW(
-                dc,
-                &query,
-                Some(collect_font),
-                LPARAM((&mut fonts as *mut BTreeSet<String>) as isize),
-                0,
-            );
-        }
-        ReleaseDC(None, dc);
-    }
-    Ok(fonts.into_iter().collect())
-}
-
-#[tauri::command]
-#[cfg(not(windows))]
-pub fn list_system_fonts() -> Cmd<Vec<String>> {
-    Ok(Vec::new())
-}
-#[tauri::command]
 pub fn list_games(
     state: State<AppState>,
     search: String,
@@ -188,10 +125,6 @@ pub fn delete_game(state: State<AppState>, id: i64) -> Cmd<()> {
     let directory = state.screenshots.join(id.to_string());
     if directory.exists() {
         std::fs::remove_dir_all(directory).map_err(err)?;
-    }
-    let social_directory = state.social_images.join(id.to_string());
-    if social_directory.exists() {
-        std::fs::remove_dir_all(social_directory).map_err(err)?;
     }
     Ok(())
 }
@@ -498,64 +431,6 @@ pub fn open_screenshot_directory(state: State<AppState>, game_id: i64) -> Cmd<()
     };
     if result.0 as isize <= 32 {
         Err("スクリーンショットの保存先を開けませんでした".into())
-    } else {
-        Ok(())
-    }
-}
-
-#[tauri::command]
-pub fn save_social_image(state: State<AppState>, game_id: i64, png_base64: String) -> Cmd<String> {
-    use base64::{Engine, engine::general_purpose::STANDARD};
-    state.db.get_game(game_id).map_err(err)?;
-    let bytes = STANDARD.decode(png_base64).map_err(err)?;
-    if bytes.len() > 20 * 1024 * 1024 {
-        return Err("生成画像のサイズが大きすぎます".into());
-    }
-    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Err("生成画像がPNG形式ではありません".into());
-    }
-    let directory = state.social_images.join(game_id.to_string());
-    std::fs::create_dir_all(&directory).map_err(err)?;
-    let path = directory.join(format!(
-        "sns-{}.png",
-        chrono::Utc::now().format("%Y%m%d-%H%M%S-%3f")
-    ));
-    std::fs::write(&path, bytes).map_err(err)?;
-    Ok(path.to_string_lossy().into_owned())
-}
-
-#[tauri::command]
-pub fn open_social_image_directory(state: State<AppState>, game_id: i64) -> Cmd<()> {
-    state.db.get_game(game_id).map_err(err)?;
-    let directory = state.social_images.join(game_id.to_string());
-    std::fs::create_dir_all(&directory).map_err(err)?;
-    open_directory(&directory)
-}
-
-fn open_directory(directory: &std::path::Path) -> Cmd<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows::{
-        Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
-        core::PCWSTR,
-    };
-    let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-    let target: Vec<u16> = directory
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let result = unsafe {
-        ShellExecuteW(
-            None,
-            PCWSTR(operation.as_ptr()),
-            PCWSTR(target.as_ptr()),
-            PCWSTR::null(),
-            PCWSTR::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-    if result.0 as isize <= 32 {
-        Err("保存先を開けませんでした".into())
     } else {
         Ok(())
     }
