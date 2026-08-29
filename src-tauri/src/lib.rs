@@ -152,6 +152,7 @@ pub fn run() {
             commands::list_background_intervals,
             commands::create_manual_session,
             commands::update_session,
+            commands::confirm_session_review,
             commands::delete_session,
             commands::delete_all_sessions,
             commands::create_background_interval,

@@ -192,6 +192,10 @@ pub fn update_session(
         .map_err(err)
 }
 #[tauri::command]
+pub fn confirm_session_review(state: State<AppState>, id: i64) -> Cmd<()> {
+    state.db.confirm_session_review(id).map_err(err)
+}
+#[tauri::command]
 pub fn delete_session(state: State<AppState>, id: i64) -> Cmd<()> {
     state.db.delete_session(id).map_err(err)
 }

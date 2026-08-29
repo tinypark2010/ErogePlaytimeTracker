@@ -63,6 +63,7 @@ export const api = {
     invoke<number>('create_manual_session', { gameId, start, end }),
   updateSession: (id: number, start: string, end: string | null) =>
     invoke<void>('update_session', { id, start, end }),
+  confirmSessionReview: (id: number) => invoke<void>('confirm_session_review', { id }),
   deleteSession: (id: number) => invoke<void>('delete_session', { id }),
   deleteAllSessions: (gameId: number) => invoke<number>('delete_all_sessions', { gameId }),
   createInterval: (sessionId: number, start: string, end: string) =>

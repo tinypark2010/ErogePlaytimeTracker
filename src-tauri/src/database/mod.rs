@@ -449,6 +449,24 @@ impl Database {
         tx.commit()?;
         Ok(())
     }
+    pub fn confirm_session_review(&self, id: i64) -> Result<()> {
+        let c = self.0.lock();
+        let updated = c.execute(
+            "UPDATE play_sessions SET needs_review=0,updated_at=? WHERE id=? AND needs_review<>0",
+            params![now(), id],
+        )?;
+        if updated == 0 {
+            let exists: bool = c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM play_sessions WHERE id=?)",
+                [id],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                bail!("セッションが見つかりません")
+            }
+        }
+        Ok(())
+    }
     pub fn delete_session(&self, id: i64) -> Result<()> {
         self.0
             .lock()
@@ -1432,6 +1450,48 @@ mod tests {
             d.update_interval(interval, &recorded.started_at, None)
                 .is_err()
         );
+    }
+    #[test]
+    fn confirming_session_review_preserves_playtime_and_clears_review_counts() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let session = d.start_session(g, "2026-01-01T00:00:00Z").unwrap();
+        d.start_interval(session, "2026-01-01T00:10:00Z").unwrap();
+        d.recover_orphans("2026-01-01T00:30:00Z").unwrap();
+        let period = StatisticsPeriodInput {
+            kind: "year".into(),
+            year: Some(2026),
+            month: None,
+        };
+
+        let before = d.list_sessions(g).unwrap().remove(0);
+        assert!(before.needs_review);
+        assert_eq!(
+            d.statistics(&period)
+                .unwrap()
+                .summary
+                .needs_review_session_count,
+            1
+        );
+
+        d.confirm_session_review(session).unwrap();
+        d.confirm_session_review(session).unwrap();
+
+        let after = d.list_sessions(g).unwrap().remove(0);
+        assert!(!after.needs_review);
+        assert_eq!(after.launched_at, before.launched_at);
+        assert_eq!(after.exited_at, before.exited_at);
+        assert_eq!(after.playtime_seconds, before.playtime_seconds);
+        assert_eq!(after.background_seconds, before.background_seconds);
+        assert_eq!(after.running_seconds, before.running_seconds);
+        assert_eq!(
+            d.statistics(&period)
+                .unwrap()
+                .summary
+                .needs_review_session_count,
+            0
+        );
+        assert!(d.confirm_session_review(i64::MAX).is_err());
     }
     #[test]
     fn multiple_executables_one_game() {
