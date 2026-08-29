@@ -3,6 +3,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
   import DateTimeSelect from './DateTimeSelect.svelte';
+  import DeleteButton from './DeleteButton.svelte';
   import ThumbnailCropEditor from './ThumbnailCropEditor.svelte';
   import HistoryDataRow from './HistoryDataRow.svelte';
   import { api } from '../lib/api';
@@ -29,7 +30,6 @@
     PlayStatus,
     Session,
   } from '../lib/types';
-  type ConfirmAction = 'session' | 'interval' | 'all-sessions' | 'game';
   type SocialStyle = 'midnight' | 'rose' | 'ocean';
   type SocialLayout = 'auto' | 'left' | 'right' | 'top' | 'bottom' | 'custom';
   type SocialPreset = Exclude<SocialLayout, 'custom'>;
@@ -128,7 +128,6 @@
   };
   let socialImageEditorRect: SocialRect;
   let socialFilteredFonts: string[];
-  let confirmAction: ConfirmAction | null = null;
   const pageSizeOptions = [10, 25, 50];
   let screenshotPage = 1,
     screenshotPageSize = 10,
@@ -178,22 +177,6 @@
     socialRenderKey;
     scheduleSocialPreview();
   }
-  const confirmTitle = () =>
-    confirmAction === 'session'
-      ? 'セッションの削除'
-      : confirmAction === 'interval'
-        ? '除外区間の削除'
-        : confirmAction === 'all-sessions'
-          ? 'すべてのセッションを削除'
-          : 'ゲームの削除';
-  const confirmMessage = () =>
-    confirmAction === 'session'
-      ? 'このセッションを本当に削除しますか？'
-      : confirmAction === 'interval'
-        ? 'この除外区間を削除すると、該当時間がプレイ時間に加算されます。削除後は元に戻せません。'
-        : confirmAction === 'all-sessions'
-          ? `${sessions.length}件のセッションと除外時間の記録をすべて削除します。元に戻せません。`
-          : 'ゲーム情報、すべてのプレイ履歴、記録ポイント、スクリーンショット、SNS画像を削除します。元に戻せません。';
   async function load() {
     try {
       const [nextGame, nextSessions, nextTimestamps, nextScreenshots] = await Promise.all([
@@ -333,8 +316,13 @@
     if (selected) newPath = selected;
   }
   async function removeExe(id: number) {
-    await api.removeExecutable(id);
-    await load();
+    try {
+      await api.removeExecutable(id);
+      await load();
+      showToast('実行ファイルの登録を削除しました');
+    } catch (e) {
+      showToast(`実行ファイルの登録を削除できませんでした: ${String(e)}`, true);
+    }
   }
   function beginManualSession() {
     manualStart = '';
@@ -386,49 +374,28 @@
       sessionSaving = false;
     }
   }
-  function removeSession() {
-    if (selected) {
-      sessionActionError = '';
-      confirmAction = 'session';
+  async function removeSession() {
+    if (!selected) return;
+    const sessionId = selected.id;
+    sessionActionError = '';
+    try {
+      await api.deleteSession(sessionId);
+      closeSessionEditor();
+      await load();
+    } catch {
+      sessionActionError = 'セッションを削除できませんでした。もう一度お試しください。';
     }
   }
-  function removeAllSessions() {
-    if (sessions.length) confirmAction = 'all-sessions';
-  }
-  async function confirmDelete() {
-    const action = confirmAction;
-    const interval = action === 'interval' ? intervalBeingEdited : null;
-    confirmAction = null;
+  async function removeAllSessions() {
+    if (!sessions.length) return;
+    pageError = '';
     try {
-      if (action === 'session' && selected) {
-        await api.deleteSession(selected.id);
-        closeSessionEditor();
-        await load();
-      } else if (action === 'interval' && interval?.ended_at) {
-        savingIntervalId = interval.id;
-        intervalEditError = '';
-        await api.deleteInterval(interval.id);
-        intervals = await api.intervals(interval.play_session_id);
-        cancelEditInterval();
-        await load();
-      } else if (action === 'all-sessions') {
-        await api.deleteAllSessions(gameId);
-        closeSessionEditor();
-        await load();
-      } else if (action === 'game') {
-        await api.deleteGame(gameId);
-        onback();
-      }
+      await api.deleteAllSessions(gameId);
+      closeSessionEditor();
+      await load();
     } catch {
-      if (action === 'session') {
-        sessionActionError = 'セッションを削除できませんでした。もう一度お試しください。';
-      } else if (action === 'interval') {
-        intervalEditError = '除外区間を削除できませんでした。もう一度お試しください。';
-      } else {
-        pageError = '削除できませんでした。しばらくしてからもう一度お試しください。';
-      }
-    } finally {
-      if (action === 'interval') savingIntervalId = null;
+      pageError =
+        'すべてのセッションを削除できませんでした。しばらくしてからもう一度お試しください。';
     }
   }
   function intervalRanges() {
@@ -489,10 +456,21 @@
       savingIntervalId = null;
     }
   }
-  function deleteEditingInterval() {
-    if (!intervalBeingEdited?.ended_at) return;
+  async function deleteEditingInterval() {
+    const interval = intervalBeingEdited;
+    if (!interval?.ended_at) return;
     intervalEditError = '';
-    confirmAction = 'interval';
+    savingIntervalId = interval.id;
+    try {
+      await api.deleteInterval(interval.id);
+      intervals = await api.intervals(interval.play_session_id);
+      cancelEditInterval();
+      await load();
+    } catch {
+      intervalEditError = '除外区間を削除できませんでした。もう一度お試しください。';
+    } finally {
+      savingIntervalId = null;
+    }
   }
   function beginAddInterval() {
     newIntervalStart = '';
@@ -637,8 +615,14 @@
       thumbnailSaving = false;
     }
   }
-  function removeGame() {
-    confirmAction = 'game';
+  async function removeGame() {
+    pageError = '';
+    try {
+      await api.deleteGame(gameId);
+      onback();
+    } catch {
+      pageError = 'ゲームを削除できませんでした。しばらくしてからもう一度お試しください。';
+    }
   }
   async function launch() {
     try {
@@ -1381,10 +1365,6 @@
               </button>
               <div>
                 <small>{local(shot.captured_at)}</small>
-                <button
-                  aria-label="スクリーンショットを削除"
-                  onclick={() => deleteScreenshot(shot.id)}>削除</button
-                >
               </div>
             </article>
           {/each}
@@ -1460,9 +1440,11 @@
                   >{savingTimestampId === point.id ? '保存中…' : '保存'}</button
                 ><button disabled={savingTimestampId === point.id} onclick={cancelTimestampEdit}
                   >キャンセル</button
-                >{:else}<button onclick={() => beginTimestampEdit(point)}>編集</button><button
-                  onclick={() => deleteTimestamp(point.id)}>削除</button
-                >{/if}
+                >{:else}<button onclick={() => beginTimestampEdit(point)}>編集</button><DeleteButton
+                  title="プレイ記録ポイントの削除"
+                  message={`プレイ記録ポイント「${point.name}」を削除します。元に戻せません。`}
+                  onconfirm={() => deleteTimestamp(point.id)}
+                />{/if}
             </div>
           </article>{/each}
       </div>
@@ -1470,7 +1452,11 @@
     <section class="panel">
       <h2>実行ファイル</h2>
       {#each game.executables as x}<div class="listrow">
-          <code>{x.path}</code><button onclick={() => removeExe(x.id)}>削除</button>
+          <code>{x.path}</code><DeleteButton
+            title="実行ファイル登録の削除"
+            message={`実行ファイル「${x.path}」の登録を削除します。ファイル自体は削除されません。`}
+            onconfirm={() => removeExe(x.id)}
+          />
         </div>{/each}
       <div class="row">
         <input bind:value={newPath} placeholder="exeを選択してください" readonly /><button
@@ -1525,16 +1511,25 @@
           <strong>すべてのセッションを削除</strong>
           <p>このゲームのセッションと、各セッションに含まれる除外時間を削除します。</p>
         </div>
-        <button class="danger" disabled={!sessions.length} onclick={removeAllSessions}
-          >すべてのセッションを削除</button
-        >
+        <DeleteButton
+          label="すべてのセッションを削除"
+          title="すべてのセッションを削除"
+          message={`${sessions.length}件のセッションと除外時間の記録をすべて削除します。元に戻せません。`}
+          disabled={!sessions.length}
+          onconfirm={removeAllSessions}
+        />
       </div>
       <div class="danger-zone-item">
         <div>
           <strong>ゲームを削除</strong>
           <p>ゲーム情報と、このゲームに関連するすべての記録を削除します。</p>
         </div>
-        <button class="danger" onclick={removeGame}>ゲームを削除</button>
+        <DeleteButton
+          label="ゲームを削除"
+          title="ゲームの削除"
+          message={`「${game.title}」のゲーム情報、すべてのプレイ履歴、記録ポイント、スクリーンショット、SNS画像を削除します。元に戻せません。`}
+          onconfirm={removeGame}
+        />
       </div>
     </section>
   </section>{/if}
@@ -1920,7 +1915,11 @@
       </div>
       <div class="actions session-detail-actions">
         <button class="primary" type="button" onclick={beginSessionEdit}>セッションを編集</button
-        ><button class="danger" type="button" onclick={removeSession}>削除</button>
+        ><DeleteButton
+          title="セッションの削除"
+          message={`${local(selected.launched_at)} から始まるセッションを削除します。除外時間の記録も削除され、元に戻せません。`}
+          onconfirm={removeSession}
+        />
       </div>
       {#if sessionActionError}<p class="form-error" role="alert">{sessionActionError}</p>{/if}
       <h3>プレイ時間から除外した時間</h3>
@@ -2059,12 +2058,13 @@
           ><button class="primary" type="submit" disabled={savingIntervalId === editingIntervalId}
             >{savingIntervalId === editingIntervalId ? '保存中…' : '保存'}</button
           >
-          {#if intervalBeingEdited.ended_at}<button
-              class="danger interval-editor-delete"
-              type="button"
+          {#if intervalBeingEdited.ended_at}<DeleteButton
+              className="interval-editor-delete"
               disabled={savingIntervalId === editingIntervalId}
-              onclick={deleteEditingInterval}>削除</button
-            >{/if}
+              title="除外区間の削除"
+              message={`${local(intervalBeingEdited.started_at)} から ${local(intervalBeingEdited.ended_at)} までの除外区間を削除します。該当時間がプレイ時間に加算され、元に戻せません。`}
+              onconfirm={deleteEditingInterval}
+            />{/if}
         </div>
         {#if intervalEditError}<p class="form-error" role="alert">{intervalEditError}</p>{/if}
       </form>
@@ -2144,29 +2144,13 @@
         <span
           >{local(selectedScreenshot.captured_at)} ・ {selectedScreenshot.width}×{selectedScreenshot.height}</span
         >
-        <button class="danger" onclick={() => deleteScreenshot(selectedScreenshot!.id)}>削除</button
-        >
+        <DeleteButton
+          title="スクリーンショットの削除"
+          message={`${local(selectedScreenshot.captured_at)} のスクリーンショットを削除します。画像ファイルも削除され、元に戻せません。`}
+          onconfirm={() => deleteScreenshot(selectedScreenshot!.id)}
+        />
       </footer>
     </section>
-  </div>{/if}
-{#if confirmAction}<div class="modal confirm-modal">
-    <div
-      class="panel confirm-box"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="confirm-title"
-      aria-describedby="confirm-message"
-    >
-      <div class="confirm-icon">!</div>
-      <h2 id="confirm-title">{confirmTitle()}</h2>
-      <p id="confirm-message">{confirmMessage()}</p>
-      <div class="confirm-actions">
-        <button onclick={() => (confirmAction = null)}>キャンセル</button><button
-          class="danger"
-          onclick={confirmDelete}>削除する</button
-        >
-      </div>
-    </div>
   </div>{/if}
 {#if toast}<div class:error-toast={toastError} class="toast" role="status">
     <span>{toastError ? '!' : '✓'}</span>
