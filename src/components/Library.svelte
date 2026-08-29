@@ -3,7 +3,7 @@
   import { api } from '../lib/api';
   import { duration, lastPlayed, imageSrc, playStatusLabel, playStatusOptions } from '../lib/time';
   import type { GameSummary, SortKey } from '../lib/types';
-  type ViewMode = 'grid' | 'list';
+  type ViewMode = 'grid' | 'list' | 'table';
   export let refresh = 0;
   export let openGame: (id: number) => void;
   let games: GameSummary[] = [],
@@ -16,6 +16,10 @@
     viewMode: ViewMode = 'grid';
   let loadedKey = '';
   $: totalPlaytimeSeconds = games.reduce((total, game) => total + game.total_playtime_seconds, 0);
+  $: maximumPlaytimeSeconds = games.reduce(
+    (maximum, game) => Math.max(maximum, game.total_playtime_seconds),
+    0,
+  );
   async function load() {
     try {
       games = await api.listGames(search, brand, playStatus, sort, descending);
@@ -33,7 +37,7 @@
   let brands: string[] = [];
   onMount(() => {
     const saved = localStorage.getItem('library-view-mode');
-    if (saved === 'grid' || saved === 'list') viewMode = saved;
+    if (saved === 'grid' || saved === 'list' || saved === 'table') viewMode = saved;
     api
       .listBrands()
       .then((value) => (brands = value))
@@ -51,6 +55,12 @@
     } catch (e) {
       error = String(e);
     }
+  }
+  function openTableRow(event: KeyboardEvent, gameId: number) {
+    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' '))
+      return;
+    event.preventDefault();
+    openGame(gameId);
   }
 </script>
 
@@ -94,6 +104,11 @@
         aria-pressed={viewMode === 'list'}
         title="リスト表示"
         onclick={() => setViewMode('list')}>☷<span>リスト</span></button
+      ><button
+        class:active={viewMode === 'table'}
+        aria-pressed={viewMode === 'table'}
+        title="テーブル表示"
+        onclick={() => setViewMode('table')}>▤<span>テーブル</span></button
       >
     </div>
   </div>
@@ -132,7 +147,7 @@
         >
       </article>{/each}
   </div>
-{:else}
+{:else if viewMode === 'list'}
   <div class="library-list">
     {#each games as g}<article class="library-row">
         <button
@@ -166,5 +181,74 @@
           aria-label={`${g.title}を起動`}>▶ 起動</button
         >
       </article>{/each}
+  </div>
+{:else}
+  <div class="library-table-scroll">
+    <table class="library-table">
+      <thead>
+        <tr>
+          <th scope="col">ゲーム</th>
+          <th scope="col">ブランド</th>
+          <th scope="col">状態</th>
+          <th class="library-table-number" scope="col">プレイ時間</th>
+          <th scope="col">最終プレイ</th>
+          <th scope="col">セッション</th>
+          <th scope="col">発売日</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each games as g}
+          {@const playtimeShare = maximumPlaytimeSeconds
+            ? (g.total_playtime_seconds / maximumPlaytimeSeconds) * 100
+            : 0}
+          <tr
+            class="library-table-row"
+            role="link"
+            tabindex="0"
+            aria-label={`${g.title}の詳細を開く`}
+            onclick={() => openGame(g.id)}
+            onkeydown={(event) => openTableRow(event, g.id)}
+          >
+            <td class="library-table-game-cell">
+              <span class="library-table-title library-table-game-detail"
+                ><span>{g.title}</span></span
+              >
+              <button
+                class="library-table-launch"
+                onclick={(event) => {
+                  event.stopPropagation();
+                  launch(g.id);
+                }}
+                aria-label={`${g.title}を起動`}
+              >
+                <span class="library-table-thumbnail">
+                  {#if g.thumbnail_path}<img src={imageSrc(g.thumbnail_path)} alt="" />{:else}<span
+                      >NO IMAGE</span
+                    >{/if}
+                </span>
+                <span class="library-table-launch-icon" aria-hidden="true">▶</span>
+              </button>
+            </td>
+            <td class="library-table-muted">{g.brand ?? 'ブランド未設定'}</td>
+            <td
+              ><span class="play-status status-{g.play_status}"
+                >{playStatusLabel(g.play_status)}</span
+              ></td
+            >
+            <td class="library-table-number">
+              <div class="library-table-playtime">
+                <strong>{duration(g.total_playtime_seconds)}</strong>
+                <span class="library-table-playtime-bar" aria-hidden="true"
+                  ><i style={`width: ${playtimeShare}%`}></i></span
+                >
+              </div>
+            </td>
+            <td class="library-table-muted">{lastPlayed(g.last_played)}</td>
+            <td class="library-table-session-count">{g.session_count}回</td>
+            <td class="library-table-muted">{g.release_date ?? '—'}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
   </div>
 {/if}
