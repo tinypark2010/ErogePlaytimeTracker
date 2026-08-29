@@ -69,8 +69,8 @@ export const api = {
   timestamps: (gameId: number) => invoke<GameTimestamp[]>('list_game_timestamps', { gameId }),
   createTimestamp: (gameId: number, name: string) =>
     invoke<number>('create_game_timestamp', { gameId, name }),
-  updateTimestampName: (id: number, name: string) =>
-    invoke<void>('update_game_timestamp_name', { id, name }),
+  updateTimestamp: (id: number, name: string, markedAt: string) =>
+    invoke<void>('update_game_timestamp', { id, name, markedAt }),
   deleteTimestamp: (id: number) => invoke<void>('delete_game_timestamp', { id }),
   screenshots: (gameId: number) => invoke<GameScreenshot[]>('list_game_screenshots', { gameId }),
   deleteScreenshot: (id: number) => invoke<void>('delete_game_screenshot', { id }),

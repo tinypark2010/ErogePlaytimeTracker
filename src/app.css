@@ -2255,6 +2255,10 @@ button.primary:disabled:hover {
   width: min(100%, 520px);
   margin-bottom: 0.25rem;
 }
+.timestamp-time-input {
+  max-width: 560px;
+  margin: 0.55rem 0;
+}
 .timestamp-item-actions {
   display: flex;
   justify-content: flex-end;

@@ -87,7 +87,10 @@
     thumbnailError = '';
   let editingTimestampId: number | null = null,
     savingTimestampId: number | null = null,
-    editingTimestampName = '';
+    editingTimestampName = '',
+    editingTimestampTime = '',
+    editingTimestampTimeComplete = true,
+    timestampEditError = '';
   const pageSizeOptions = [10, 25, 50];
   let screenshotPage = 1,
     screenshotPageSize = 10,
@@ -590,27 +593,46 @@
   function beginTimestampEdit(point: GameTimestamp) {
     editingTimestampId = point.id;
     editingTimestampName = point.name;
+    editingTimestampTime = inputTime(point.marked_at);
+    editingTimestampTimeComplete = true;
+    timestampEditError = '';
   }
   function cancelTimestampEdit() {
     editingTimestampId = null;
     editingTimestampName = '';
+    editingTimestampTime = '';
+    editingTimestampTimeComplete = true;
+    timestampEditError = '';
   }
-  async function saveTimestampName(point: GameTimestamp) {
+  async function saveTimestamp(point: GameTimestamp) {
     const name = editingTimestampName.trim();
-    if (!name) return showToast('プレイ記録ポイントの名称を入力してください', true);
-    if (name === point.name) {
+    if (!name) {
+      timestampEditError = 'プレイ記録ポイントの名称を入力してください。';
+      return;
+    }
+    if (!editingTimestampTimeComplete || !editingTimestampTime) {
+      timestampEditError = '記録日時をすべて選択してください。';
+      return;
+    }
+    const timeChanged = editingTimestampTime !== inputTime(point.marked_at);
+    if (name === point.name && !timeChanged) {
       cancelTimestampEdit();
       return;
     }
     if (savingTimestampId !== null) return;
     savingTimestampId = point.id;
+    timestampEditError = '';
     try {
-      await api.updateTimestampName(point.id, name);
+      await api.updateTimestamp(
+        point.id,
+        name,
+        timeChanged ? utc(editingTimestampTime) : point.marked_at,
+      );
       await load();
       cancelTimestampEdit();
-      showToast('プレイ記録ポイントの名称を変更しました');
+      showToast('プレイ記録ポイントを変更しました');
     } catch (e) {
-      showToast(`名称を変更できませんでした: ${String(e)}`, true);
+      timestampEditError = `変更できませんでした: ${String(e)}`;
     } finally {
       savingTimestampId = null;
     }
@@ -842,12 +864,32 @@
                   aria-label="プレイ記録ポイントの名称"
                   maxlength="100"
                   bind:value={editingTimestampName}
+                  aria-invalid={Boolean(timestampEditError)}
+                  disabled={savingTimestampId === point.id}
+                  oninput={() => (timestampEditError = '')}
                   onkeydown={(event) => {
-                    if (event.key === 'Enter') saveTimestampName(point);
+                    if (event.key === 'Enter') saveTimestamp(point);
                     if (event.key === 'Escape') cancelTimestampEdit();
                   }}
-                />{:else}<h3>{point.name}</h3>{/if}
-              <small>{local(point.marked_at)}</small>
+                />
+                <div class="timestamp-time-input">
+                  <DateTimeSelect
+                    label="記録日時"
+                    value={editingTimestampTime}
+                    disabled={savingTimestampId === point.id}
+                    invalid={Boolean(timestampEditError)}
+                    onchange={(value, complete) => {
+                      editingTimestampTime = value;
+                      editingTimestampTimeComplete = complete;
+                      timestampEditError = '';
+                    }}
+                  />
+                </div>
+                {#if timestampEditError}<p class="form-error" role="alert">
+                    {timestampEditError}
+                  </p>{/if}
+              {:else}<h3>{point.name}</h3>
+                <small>{local(point.marked_at)}</small>{/if}
               <div class="timestamp-times">
                 <span
                   ><small>累計プレイ時間</small><strong>{duration(point.playtime_seconds)}</strong
@@ -863,7 +905,7 @@
               {#if editingTimestampId === point.id}<button
                   class="primary"
                   disabled={savingTimestampId === point.id || !editingTimestampName.trim()}
-                  onclick={() => saveTimestampName(point)}
+                  onclick={() => saveTimestamp(point)}
                   >{savingTimestampId === point.id ? '保存中…' : '保存'}</button
                 ><button disabled={savingTimestampId === point.id} onclick={cancelTimestampEdit}
                   >キャンセル</button
