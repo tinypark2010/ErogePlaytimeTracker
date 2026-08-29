@@ -41,6 +41,79 @@ pub struct PlaySession {
     pub background_seconds: i64,
     pub running_seconds: Option<i64>,
 }
+#[derive(Debug, Clone, Deserialize)]
+pub struct StatisticsPeriodInput {
+    pub kind: String,
+    pub year: Option<i32>,
+    pub month: Option<u32>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct StatisticsPeriod {
+    pub kind: String,
+    pub year: Option<i32>,
+    pub month: Option<u32>,
+    pub start_date: String,
+    pub end_date: String,
+    pub generated_at: String,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct StatisticsSessionHighlight {
+    pub session_id: i64,
+    pub game_id: i64,
+    pub title: String,
+    pub launched_at: String,
+    pub exited_at: Option<String>,
+    pub playtime_seconds: i64,
+    pub needs_review: bool,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct StatisticsDayHighlight {
+    pub date: String,
+    pub playtime_seconds: i64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct StatisticsSummary {
+    pub total_playtime_seconds: i64,
+    pub active_day_count: i64,
+    pub average_per_day_seconds: i64,
+    pub game_count: i64,
+    pub session_count: i64,
+    pub average_session_seconds: i64,
+    pub longest_session: Option<StatisticsSessionHighlight>,
+    pub busiest_day: Option<StatisticsDayHighlight>,
+    pub needs_review_session_count: i64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct StatisticsDayGame {
+    pub game_id: i64,
+    pub title: String,
+    pub thumbnail_path: Option<String>,
+    pub playtime_seconds: i64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct StatisticsDay {
+    pub date: String,
+    pub playtime_seconds: i64,
+    pub games: Vec<StatisticsDayGame>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct StatisticsGame {
+    pub game_id: i64,
+    pub title: String,
+    pub brand: Option<String>,
+    pub thumbnail_path: Option<String>,
+    pub playtime_seconds: i64,
+    pub session_count: i64,
+    pub active_day_count: i64,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct StatisticsReport {
+    pub period: StatisticsPeriod,
+    pub summary: StatisticsSummary,
+    pub days: Vec<StatisticsDay>,
+    pub games: Vec<StatisticsGame>,
+    pub available_years: Vec<i32>,
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct BackgroundInterval {
     pub id: i64,

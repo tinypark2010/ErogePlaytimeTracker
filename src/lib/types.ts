@@ -42,6 +42,70 @@ export interface Session {
   background_seconds: number;
   running_seconds: number | null;
 }
+export type StatisticsPeriodKind = 'month' | 'year' | 'all';
+export interface StatisticsPeriodInput {
+  kind: StatisticsPeriodKind;
+  year?: number;
+  month?: number;
+}
+export interface StatisticsSessionHighlight {
+  session_id: number;
+  game_id: number;
+  title: string;
+  launched_at: string;
+  exited_at: string | null;
+  playtime_seconds: number;
+  needs_review: boolean;
+}
+export interface StatisticsDayHighlight {
+  date: string;
+  playtime_seconds: number;
+}
+export interface StatisticsSummary {
+  total_playtime_seconds: number;
+  active_day_count: number;
+  average_per_day_seconds: number;
+  game_count: number;
+  session_count: number;
+  average_session_seconds: number;
+  longest_session: StatisticsSessionHighlight | null;
+  busiest_day: StatisticsDayHighlight | null;
+  needs_review_session_count: number;
+}
+export interface StatisticsDayGame {
+  game_id: number;
+  title: string;
+  thumbnail_path: string | null;
+  playtime_seconds: number;
+}
+export interface StatisticsDay {
+  date: string;
+  playtime_seconds: number;
+  games: StatisticsDayGame[];
+}
+export interface StatisticsGame {
+  game_id: number;
+  title: string;
+  brand: string | null;
+  thumbnail_path: string | null;
+  playtime_seconds: number;
+  session_count: number;
+  active_day_count: number;
+}
+export interface StatisticsReport {
+  period: {
+    kind: StatisticsPeriodKind;
+    year: number | null;
+    month: number | null;
+    start_date: string;
+    end_date: string;
+    generated_at: string;
+  };
+  summary: StatisticsSummary;
+  days: StatisticsDay[];
+  games: StatisticsGame[];
+  available_years: number[];
+}
 export interface BackgroundInterval {
   id: number;
   play_session_id: number;

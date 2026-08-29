@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import Library from './components/Library.svelte';
+  import Statistics from './components/Statistics.svelte';
   import GameDetail from './components/GameDetail.svelte';
   import AddGame from './components/AddGame.svelte';
   import Settings from './components/Settings.svelte';
@@ -9,7 +10,7 @@
   import { api } from './lib/api';
   import { trackingStatusGroups, trackingStatusText } from './lib/trackingStatus';
   import type { Theme, TrackingStatus } from './lib/types';
-  type Page = 'library' | 'game' | 'add' | 'settings';
+  type Page = 'library' | 'statistics' | 'game' | 'add' | 'settings';
   let page: Page = 'library',
     gameId = 0,
     refresh = 0,
@@ -20,7 +21,8 @@
     settingsLoaded = false,
     settingsDirty = false,
     pendingPage: Page | null = null,
-    pendingReload = false;
+    pendingReload = false,
+    gameReturnPage: 'library' | 'statistics' = 'library';
   function goTo(next: Page, shouldReload = false) {
     if (page === 'settings' && next !== 'settings' && settingsDirty) {
       pendingPage = next;
@@ -40,6 +42,7 @@
     pendingReload = false;
   }
   const openGame = (id: number) => {
+    if (page === 'library' || page === 'statistics') gameReturnPage = page;
     gameId = id;
     goTo('game');
   };
@@ -78,9 +81,12 @@
     }}>Eroge Playtime Tracker</button
   >
   <nav>
-    <button onclick={() => goTo('library')}>ライブラリ</button><button onclick={() => goTo('add')}
-      >ゲーム追加</button
-    ><button onclick={() => goTo('settings')}>設定</button>
+    <button class:active={page === 'library'} onclick={() => goTo('library')}>ライブラリ</button
+    ><button class:active={page === 'statistics'} onclick={() => goTo('statistics')}>統計</button
+    ><button class:active={page === 'add'} onclick={() => goTo('add')}>ゲーム追加</button><button
+      class:active={page === 'settings'}
+      onclick={() => goTo('settings')}>設定</button
+    >
   </nav>
   <div class="tracking-statuses">
     {#if statusGroups.length === 0}<span class="tracking-status idle">● 待機中</span>{/if}
@@ -91,11 +97,17 @@
   </div>
 </header>
 <main>
-  {#if page === 'library'}<Library {refresh} {openGame} />{:else if page === 'game'}<GameDetail
+  {#if page === 'library'}<Library
+      {refresh}
+      {openGame}
+    />{:else if page === 'statistics'}<Statistics
+      {openGame}
+      trackingActive={status.games.length > 0}
+    />{:else if page === 'game'}<GameDetail
       {gameId}
       onback={() => {
-        page = 'library';
-        reload();
+        page = gameReturnPage;
+        if (gameReturnPage === 'library') reload();
       }}
     />{:else if page === 'add'}<AddGame
       ondone={(id) => {

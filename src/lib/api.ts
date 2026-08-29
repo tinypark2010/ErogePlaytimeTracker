@@ -10,6 +10,8 @@ import type {
   Settings,
   PlayStatus,
   SortKey,
+  StatisticsPeriodInput,
+  StatisticsReport,
   TrackingStatus,
 } from './types';
 export const api = {
@@ -53,6 +55,8 @@ export const api = {
   removeExecutable: (id: number) => invoke<void>('remove_game_executable', { id }),
   launchGame: (gameId: number) => invoke<void>('launch_game', { gameId }),
   sessions: (gameId: number) => invoke<Session[]>('list_sessions', { gameId }),
+  statistics: (period: StatisticsPeriodInput) =>
+    invoke<StatisticsReport>('get_statistics', { period }),
   intervals: (sessionId: number) =>
     invoke<BackgroundInterval[]>('list_background_intervals', { sessionId }),
   manualSession: (gameId: number, start: string, end: string) =>
