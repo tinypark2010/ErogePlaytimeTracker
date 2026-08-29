@@ -299,8 +299,16 @@ pub fn create_game_timestamp(state: State<AppState>, game_id: i64, name: String)
         .map_err(err)
 }
 #[tauri::command]
-pub fn update_game_timestamp_name(state: State<AppState>, id: i64, name: String) -> Cmd<()> {
-    state.db.update_timestamp_name(id, &name).map_err(err)
+pub fn update_game_timestamp(
+    state: State<AppState>,
+    id: i64,
+    name: String,
+    marked_at: String,
+) -> Cmd<()> {
+    state
+        .db
+        .update_timestamp(id, &name, &marked_at)
+        .map_err(err)
 }
 #[tauri::command]
 pub fn delete_game_timestamp(state: State<AppState>, id: i64) -> Cmd<()> {

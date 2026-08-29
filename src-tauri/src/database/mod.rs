@@ -527,11 +527,12 @@ impl Database {
         )?;
         Ok(c.last_insert_rowid())
     }
-    pub fn update_timestamp_name(&self, id: i64, name: &str) -> Result<()> {
+    pub fn update_timestamp(&self, id: i64, name: &str, marked_at: &str) -> Result<()> {
         let name = validate_timestamp_name(name)?;
+        DateTime::parse_from_rfc3339(marked_at).context("記録日時が不正です")?;
         let changed = self.0.lock().execute(
-            "UPDATE game_timestamps SET name=? WHERE id=?",
-            params![name, id],
+            "UPDATE game_timestamps SET name=?,marked_at=? WHERE id=?",
+            params![name, marked_at, id],
         )?;
         if changed == 0 {
             bail!("プレイ記録ポイントが見つかりません")
@@ -1053,20 +1054,39 @@ mod tests {
     }
 
     #[test]
-    fn timestamp_name_update_is_trimmed_and_validated() {
+    fn timestamp_update_reorders_and_recalculates_playtime() {
         let d = Database::memory().unwrap();
         let g = game(&d);
-        let point = d
+        d.manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
+            .unwrap();
+        let first = d
             .create_timestamp(g, "共通ルート終了", "2026-01-01T00:30:00Z")
             .unwrap();
+        let second = d
+            .create_timestamp(g, "個別ルート終了", "2026-01-01T00:45:00Z")
+            .unwrap();
 
-        d.update_timestamp_name(point, "  真ルート終了  ").unwrap();
-        let updated = &d.timestamps(g).unwrap()[0];
-        assert_eq!(updated.name, "真ルート終了");
-        assert_eq!(updated.marked_at, "2026-01-01T00:30:00Z");
+        d.update_timestamp(second, "  真ルート終了  ", "2026-01-01T00:15:00Z")
+            .unwrap();
+        let updated = d.timestamps(g).unwrap();
+        assert_eq!(updated[0].id, second);
+        assert_eq!(updated[0].name, "真ルート終了");
+        assert_eq!(updated[0].marked_at, "2026-01-01T00:15:00Z");
+        assert_eq!(updated[0].playtime_seconds, 900);
+        assert_eq!(updated[0].since_previous_seconds, 900);
+        assert_eq!(updated[1].id, first);
+        assert_eq!(updated[1].playtime_seconds, 1800);
+        assert_eq!(updated[1].since_previous_seconds, 900);
 
-        assert!(d.update_timestamp_name(point, "   ").is_err());
-        assert!(d.update_timestamp_name(i64::MAX, "存在しない記録").is_err());
+        assert!(
+            d.update_timestamp(first, "   ", "2026-01-01T00:30:00Z")
+                .is_err()
+        );
+        assert!(d.update_timestamp(first, "有効な名称", "invalid").is_err());
+        assert!(
+            d.update_timestamp(i64::MAX, "存在しない記録", "2026-01-01T00:30:00Z")
+                .is_err()
+        );
     }
 
     #[test]
