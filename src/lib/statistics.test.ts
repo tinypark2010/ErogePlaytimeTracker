@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compactDuration, dailyTrend, nextChartZoom } from './statistics';
+import { chartAxisTicks, compactDuration, dailyTrend, nextChartZoom } from './statistics';
 import type { StatisticsDay } from './types';
 
 function day(date: string, playtime_seconds: number): StatisticsDay {
@@ -39,6 +39,16 @@ describe('statistics helpers', () => {
         cumulative_seconds: 480,
       },
     ]);
+  });
+
+  it('builds evenly spaced duration ticks from zero to the chart maximum', () => {
+    expect(chartAxisTicks(10_800)).toEqual([
+      { ratio: 0, value: 0 },
+      { ratio: 1 / 3, value: 3_600 },
+      { ratio: 2 / 3, value: 7_200 },
+      { ratio: 1, value: 10_800 },
+    ]);
+    expect(chartAxisTicks(0).map((tick) => tick.value)).toEqual([0, 20, 40, 60]);
   });
 
   it('zooms the chart in when scrolling up and leaves minimum zoom unchanged', () => {
