@@ -4,7 +4,7 @@
 
 - Windows 10/11 x64 専用の local-first desktop app。登録した visual novel の process/session 時間から background 時間を除いて playtime を記録する。
 - Stack は Tauri 2 / Rust 2024 / Svelte 5 / TypeScript / SQLite (`rusqlite`)。server、cloud account、workspace/monorepo はない。
-- 作業前に [README.md](README.md) を読む。追跡・データモデルの意図は [eroge-playtime-tracker-spec.md](eroge-playtime-tracker-spec.md) の sections 4–7、9–14、20 を参照する。仕様書内の directory tree は初期の「Suggested layout」であり、現行構成そのものではない。
+- 作業前にuser-facingな概要として [README.md](README.md)、開発・build情報として [docs/technical-notes.md](docs/technical-notes.md) を読む。追跡・データモデルの意図は [eroge-playtime-tracker-spec.md](eroge-playtime-tracker-spec.md) の sections 4–7、9–14、20 を参照する。仕様書内の directory tree は初期の「Suggested layout」であり、現行構成そのものではない。
 
 ## Repository map
 
@@ -37,7 +37,7 @@ npm run tauri dev
 
 ## Requirement analysis and change design
 
-- 変更・build taskでは、編集前にユーザーが求めるoutcome、現状と根本原因、守るべきinvariant・compatibility、受入条件を整理する。依頼文をそのまま完全な実装仕様とはみなさず、README、仕様、現行architecture、data flowから本来必要なbehaviorを確認する。単純な機械変更では作業規模に応じて簡潔に行う。
+- 変更・build taskでは、編集前にユーザーが求めるoutcome、現状と根本原因、守るべきinvariant・compatibility、受入条件を整理する。依頼文をそのまま完全な実装仕様とはみなさず、README、technical notes、仕様、現行architecture、data flowから本来必要なbehaviorを確認する。単純な機械変更では作業規模に応じて簡潔に行う。
 - 依頼に複数のbehaviorが含まれる場合は、実装・受入・review・release・revertを独立して行えるoutcomeへ分解し、相互の技術的依存を明示する。一方を省いても他方の受入条件が成立し、schema、API、shared prerequisiteなどの依存がなければ別成果と扱う。同じ依頼文、画面、component、file、theme、prefix、作業時期であることは、同一成果の根拠にしない。
 - ユーザーが挙げた画面・command・fileを自動的に修正範囲と決めない。関連する入口から保存・runtime state・出力までをend-to-endで追い、同じfield、assumption、pattern、shared abstractionをrepository内で検索して、局所症状か共通原因かを判断する。
 - 修正は、意図したoutcomeを完全に満たす最も狭いshared boundaryへ置く。共通原因が別entry pointや隣接機能にも存在する場合は横展開するが、分析で見つけた対応が別のproduct decision、権限、または独立した成果へ広がる場合は無断で実装せず、影響と選択肢をユーザーへ提示する。
@@ -57,7 +57,7 @@ npm run tauri dev
 
 ## Verification
 
-変更範囲に対応する test を先に実行し、handoff 前は原則として README/Release CI と同じ一式を実行する。
+変更範囲に対応する test を先に実行し、handoff 前は原則として以下のRelease CIと同じ一式を実行する。
 
 ```powershell
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
@@ -122,6 +122,6 @@ npm run build
 - `THIRD_PARTY_LICENSES.txt` は ignored generated file。手編集せず `npm run licenses` で再生成する。Tauri build は packaging 前に生成し、`build.rs` は欠落時に placeholder を作るだけ。
 - dependency 追加時は tracked `package-lock.json` / `src-tauri/Cargo.lock` を更新し、`npm run licenses` を通す。npm/Rust notice generator の allowlist (`scripts/generate-licenses.mjs`) と Rust audit policy (`deny.toml`) は別なので両方を確認し、license review なしに allowlist を広げない。
 - installer は `npm run tauri build` で NSIS のみ。output は `src-tauri/target/release/bundle/nsis/`。WebView2 は download bootstrapper、updater artifacts も生成する。
-- release version は `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` の3箇所を一致させる。`v<version>` tag と一致しないと workflow が失敗する。
+- release version は `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json` の5箇所を一致させる。`v<version>` tag と一致しないと workflow が失敗する。
 - `TAURI_SIGNING_PRIVATE_KEY` は GitHub Actions の updater signing secret。値や local signing key を repository、logs、documentation に書かない。
 - core tracking は local-only。network access は明示的な ErogameScape metadata/thumbnail 操作と updater に限定し、play history や screenshots を upload する処理を追加しない。
