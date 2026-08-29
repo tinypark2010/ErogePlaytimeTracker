@@ -148,6 +148,7 @@ pub fn run() {
             commands::remove_game_executable,
             commands::launch_game,
             commands::list_sessions,
+            commands::get_statistics,
             commands::list_background_intervals,
             commands::create_manual_session,
             commands::update_session,
