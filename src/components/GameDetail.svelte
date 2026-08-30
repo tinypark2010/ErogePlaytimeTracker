@@ -272,7 +272,7 @@
     manualSessionError = '';
   }
   async function addManual() {
-    manualSessionError = validateManualSession(manualStart, manualEnd);
+    manualSessionError = validateManualSession(manualStart, manualEnd, sessionRanges());
     if (manualSessionError) return;
     manualSessionSaving = true;
     try {
@@ -289,8 +289,14 @@
   async function saveSession() {
     if (!selected) return;
     sessionFormError = selected.exited_at
-      ? validateSessionEdit(sessionStart, sessionEnd, intervalRanges())
-      : validateRunningSessionEdit(sessionStart, intervalRanges());
+      ? validateSessionEdit(
+          sessionStart,
+          sessionEnd,
+          intervalRanges(),
+          sessionRanges(),
+          selected.id,
+        )
+      : validateRunningSessionEdit(sessionStart, intervalRanges(), sessionRanges(), selected.id);
     if (sessionFormError) return;
     sessionSaving = true;
     try {
@@ -352,6 +358,13 @@
       id: interval.id,
       start: interval.started_at,
       end: interval.ended_at,
+    }));
+  }
+  function sessionRanges() {
+    return sessions.map((session) => ({
+      id: session.id,
+      start: session.launched_at,
+      end: session.exited_at,
     }));
   }
   function intervalDurationSeconds(interval: BackgroundInterval) {

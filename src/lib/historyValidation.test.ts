@@ -17,6 +17,16 @@ describe('validateManualSession', () => {
   it('accepts a valid range', () => {
     expect(validateManualSession('2026-08-29T10:00:00Z', '2026-08-29T11:00:00Z')).toBe('');
   });
+
+  it('rejects overlap with an existing session but allows touching boundaries', () => {
+    const sessions = [{ id: 1, start: '2026-08-29T10:00:00Z', end: '2026-08-29T11:00:00Z' }];
+    expect(validateManualSession('2026-08-29T10:30:00Z', '2026-08-29T11:30:00Z', sessions)).toBe(
+      '既存のセッションと重複しない日時を入力してください。',
+    );
+    expect(validateManualSession('2026-08-29T11:00:00Z', '2026-08-29T12:00:00Z', sessions)).toBe(
+      '',
+    );
+  });
 });
 
 describe('validateRunningSessionEdit', () => {
@@ -27,6 +37,17 @@ describe('validateRunningSessionEdit', () => {
       '開始日時には、すべての除外区間を含む範囲を指定してください。',
     );
     expect(validateRunningSessionEdit('2026-08-29T10:00:00Z', intervals)).toBe('');
+  });
+
+  it('rejects overlap with another session and ignores the edited session', () => {
+    const sessions = [
+      { id: 1, start: '2026-08-29T10:00:00Z', end: '2026-08-29T11:00:00Z' },
+      { id: 2, start: '2026-08-29T12:00:00Z', end: null },
+    ];
+    expect(validateRunningSessionEdit('2026-08-29T10:30:00Z', [], sessions, 2)).toBe(
+      '既存のセッションと重複しない日時を入力してください。',
+    );
+    expect(validateRunningSessionEdit('2026-08-29T11:00:00Z', [], sessions, 2)).toBe('');
   });
 });
 
@@ -56,6 +77,19 @@ describe('validateSessionEdit', () => {
 
   it('accepts bounds containing every interval', () => {
     expect(validateSessionEdit('2026-08-29T10:00:00Z', '2026-08-29T11:00:00Z', intervals)).toBe('');
+  });
+
+  it('rejects overlap with another session and ignores the edited session', () => {
+    const sessions = [
+      { id: 1, start: '2026-08-29T10:00:00Z', end: '2026-08-29T11:00:00Z' },
+      { id: 2, start: '2026-08-29T12:00:00Z', end: '2026-08-29T13:00:00Z' },
+    ];
+    expect(
+      validateSessionEdit('2026-08-29T10:30:00Z', '2026-08-29T11:30:00Z', [], sessions, 2),
+    ).toBe('既存のセッションと重複しない日時を入力してください。');
+    expect(
+      validateSessionEdit('2026-08-29T11:00:00Z', '2026-08-29T12:00:00Z', [], sessions, 2),
+    ).toBe('');
   });
 });
 
