@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eroge Playtime Tracker | エロゲのプレイ時間を記録</title>
+    <meta
+      name="description"
+      content="登録したエロゲの起動を検出してプレイ時間を自動で記録し、履歴や統計を確認できるEroge Playtime Trackerの紹介ページです。"
+    />
+    <meta name="theme-color" content="#fff4f8" />
+    <link rel="canonical" href="https://tinypark2010.github.io/ErogePlaytimeTracker/" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Eroge Playtime Tracker" />
+    <meta property="og:title" content="Eroge Playtime Tracker" />
+    <meta
+      property="og:description"
+      content="登録したエロゲの起動を検出して、プレイ時間を自動で記録します。"
+    />
+    <meta property="og:url" content="https://tinypark2010.github.io/ErogePlaytimeTracker/" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Eroge Playtime Tracker",
+        "applicationCategory": "UtilitiesApplication",
+        "description": "登録したエロゲの起動を検出して、プレイ時間を自動で記録するアプリです。",
+        "downloadUrl": "https://github.com/tinypark2010/ErogePlaytimeTracker/releases/latest",
+        "sameAs": "https://github.com/tinypark2010/ErogePlaytimeTracker",
+        "license": "https://opensource.org/license/mit",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "JPY"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">本文へ移動</a>
+
+    <header class="site-header">
+      <a class="site-name" href="#top"><span aria-hidden="true"></span>Eroge Playtime Tracker</a>
+      <nav aria-label="メインナビゲーション">
+        <a href="#screens">画面</a>
+        <a href="#tracking">計測方法</a>
+        <a href="#download">ダウンロード</a>
+      </nav>
+      <a
+        class="github-link"
+        href="https://github.com/tinypark2010/ErogePlaytimeTracker"
+        target="_blank"
+        rel="noreferrer"
+        >GitHub</a
+      >
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow">Eroge Playtime Tracker</p>
+          <h1>エロゲの<br />プレイ時間を記録</h1>
+          <p class="hero-lead">登録したゲームの起動を検出して、プレイ時間を自動で記録します。</p>
+          <div class="hero-actions">
+            <a
+              class="button primary-button"
+              data-download
+              href="https://github.com/tinypark2010/ErogePlaytimeTracker/releases/latest"
+              >最新版をダウンロード</a
+            >
+          </div>
+        </div>
+
+        <img
+          class="hero-screenshot"
+          src="./images/library.png"
+          width="1179"
+          height="789"
+          alt="Eroge Playtime Trackerのライブラリ画面"
+          decoding="async"
+          fetchpriority="high"
+        />
+      </section>
+
+      <section class="screens" id="screens">
+        <h2>画面</h2>
+        <div class="screen-explorer">
+          <div class="screen-list" role="tablist" aria-label="画面一覧" aria-orientation="vertical">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="screen-library"
+              data-screen-target="library"
+            >
+              ライブラリ
+            </button>
+            <button
+              class="screen-list-child"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="screen-detail"
+              tabindex="-1"
+              data-screen-target="detail"
+            >
+              ゲーム詳細
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="screen-statistics"
+              tabindex="-1"
+              data-screen-target="statistics"
+            >
+              統計
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="screen-add"
+              tabindex="-1"
+              data-screen-target="add"
+            >
+              ゲーム追加
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="screen-settings"
+              tabindex="-1"
+              data-screen-target="settings"
+            >
+              設定
+            </button>
+          </div>
+
+          <div class="screen-panels">
+            <section
+              class="screen-panel"
+              id="screen-library"
+              role="tabpanel"
+              data-screen-panel="library"
+            >
+              <div class="screen-description">
+                <h3>ライブラリ</h3>
+                <p>
+                  登録したゲームとプレイ時間を一覧表示します。サムネイルの実行ボタンからゲームを起動でき、検索、絞り込み、並び替え、グリッド・リスト・テーブル表示にも対応しています。
+                </p>
+              </div>
+              <img
+                class="screen-shot"
+                src="./images/library.png"
+                width="1179"
+                height="789"
+                alt="ライブラリ画面"
+                loading="lazy"
+                decoding="async"
+              />
+            </section>
+
+            <section
+              class="screen-panel"
+              id="screen-detail"
+              role="tabpanel"
+              data-screen-panel="detail"
+              hidden
+            >
+              <div class="screen-description">
+                <h3>ゲーム詳細</h3>
+                <p>
+                  ゲーム情報、合計プレイ時間、セッション履歴、プレイ記録ポイント、スクリーンショット、実行ファイルを確認・編集できます。
+                </p>
+              </div>
+              <img
+                class="screen-shot"
+                src="./images/game-detail.png"
+                width="1182"
+                height="2837"
+                alt="ゲーム詳細画面"
+                loading="lazy"
+                decoding="async"
+              />
+            </section>
+
+            <section
+              class="screen-panel"
+              id="screen-statistics"
+              role="tabpanel"
+              data-screen-panel="statistics"
+              hidden
+            >
+              <div class="screen-description">
+                <h3>統計</h3>
+                <p>
+                  月・年・全期間を指定して、プレイ時間の推移、ゲーム別の内訳、プレイ日数やセッション数を確認できます。
+                </p>
+              </div>
+              <img
+                class="screen-shot"
+                src="./images/statistics.png"
+                width="1165"
+                height="1039"
+                alt="統計画面"
+                loading="lazy"
+                decoding="async"
+              />
+            </section>
+
+            <section
+              class="screen-panel"
+              id="screen-add"
+              role="tabpanel"
+              data-screen-panel="add"
+              hidden
+            >
+              <div class="screen-description">
+                <h3>ゲーム追加</h3>
+                <p>
+                  ErogameScapeのURLまたはgame
+                  IDから情報を取得するか、タイトルやブランドなどを手動で入力し、実行ファイルを登録します。
+                </p>
+              </div>
+              <img
+                class="screen-shot"
+                src="./images/add-game.png"
+                width="1163"
+                height="1035"
+                alt="ゲーム追加画面"
+                loading="lazy"
+                decoding="async"
+              />
+            </section>
+
+            <section
+              class="screen-panel"
+              id="screen-settings"
+              role="tabpanel"
+              data-screen-panel="settings"
+              hidden
+            >
+              <div class="screen-description">
+                <h3>設定</h3>
+                <p>
+                  カラーテーマ、自動起動、トレイへの格納、スクリーンショットキー、アップデート確認を設定します。
+                </p>
+              </div>
+              <img
+                class="screen-shot"
+                src="./images/settings.png"
+                width="1177"
+                height="719"
+                alt="設定画面"
+                loading="lazy"
+                decoding="async"
+              />
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="tracking" id="tracking">
+        <h2>プレイ時間の計測方法</h2>
+        <p>
+          登録したゲームの起動と終了を検知し、1回の起動を1つのセッションとして記録します。プレイ時間は、記録したセッションの開始時刻と終了時刻をもとに算出します。
+        </p>
+        <p>
+          ゲームの起動中は、対象のゲームがフォアグラウンドにあるかバックグラウンドにあるかも検知し、バックグラウンドにあった期間を記録します。セッションの開始から終了までの時間から、その期間を除いた時間がプレイ時間になります。
+        </p>
+      </section>
+
+      <section class="download" id="download" aria-label="ダウンロード">
+        <a
+          class="button primary-button"
+          data-download
+          href="https://github.com/tinypark2010/ErogePlaytimeTracker/releases/latest"
+          >最新版をダウンロード</a
+        >
+      </section>
+    </main>
+
+    <footer>
+      <p><strong>Eroge Playtime Tracker</strong></p>
+      <div>
+        <a href="https://github.com/tinypark2010/ErogePlaytimeTracker">GitHub</a>
+        <a href="https://github.com/tinypark2010/ErogePlaytimeTracker/releases">Releases</a>
+        <a href="https://github.com/tinypark2010/ErogePlaytimeTracker/blob/main/LICENSE"
+          >MIT License</a
+        >
+      </div>
+      <small>© <span data-year></span> Eroge Playtime Tracker</small>
+    </footer>
+
+    <script type="module" src="./release.js"></script>
+    <script type="module" src="./screens.js"></script>
+  </body>
+</html>
