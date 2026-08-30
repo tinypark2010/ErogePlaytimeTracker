@@ -680,8 +680,7 @@
   }
 </script>
 
-<button class="back-button" onclick={onback}>← ライブラリに戻る</button
->{#if game}{#if game.thumbnail_path}<div
+<button class="back-button" onclick={onback}>← 戻る</button>{#if game}{#if game.thumbnail_path}<div
       class="detail-backdrop"
       style:background-image={`url("${imageSrc(game.thumbnail_path)}")`}
     ></div>{/if}
