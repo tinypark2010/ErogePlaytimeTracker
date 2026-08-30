@@ -4,6 +4,7 @@
   import DateTimeSelect from './DateTimeSelect.svelte';
   import ThumbnailCropper from './ThumbnailCropper.svelte';
   import { api } from '../lib/api';
+  import { userErrorMessage } from '../lib/errors';
   import { imageSrc } from '../lib/time';
   import type { Metadata } from '../lib/types';
   export let ondone: (id: number) => void;
@@ -48,8 +49,11 @@
       thumbnail_path = metadata.thumbnail_path ?? '';
       showToast('ErogameScapeからゲーム情報を取得しました');
     } catch (e) {
-      error = String(e);
-      showToast(`情報を取得できませんでした: ${String(e)}`, true);
+      error = userErrorMessage(
+        e,
+        '情報を取得できませんでした。入力内容と通信状態を確認してください。',
+      );
+      showToast(error, true);
     } finally {
       fetchingMeta = false;
     }
@@ -77,7 +81,7 @@
       });
       ondone(id);
     } catch (e) {
-      error = String(e);
+      error = userErrorMessage(e, 'ゲームを登録できませんでした。もう一度お試しください。');
     } finally {
       saving = false;
     }
@@ -113,7 +117,7 @@
     try {
       thumbnail_path = await api.importThumbnail(selected);
     } catch (e) {
-      error = String(e);
+      error = userErrorMessage(e, 'サムネイル画像を取り込めませんでした。');
     } finally {
       importingThumbnail = false;
     }

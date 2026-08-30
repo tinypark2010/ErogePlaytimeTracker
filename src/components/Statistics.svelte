@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
+  import { userErrorMessage } from '../lib/errors';
   import { compactDuration, formatDateKey } from '../lib/statistics';
   import { imageSrc } from '../lib/time';
   import type { StatisticsPeriodInput, StatisticsPeriodKind, StatisticsReport } from '../lib/types';
@@ -63,7 +64,9 @@
       report = next;
       availableYears = next.available_years.length ? next.available_years : [currentYear];
     } catch (cause) {
-      if (sequence === requestSequence) error = String(cause);
+      if (sequence === requestSequence) {
+        error = userErrorMessage(cause, '統計情報を読み込めませんでした。');
+      }
     } finally {
       if (sequence === requestSequence) loading = false;
     }
@@ -172,7 +175,7 @@
     </div>
   </section>
 
-  {#if error}<p class="error statistics-error">統計情報を読み込めませんでした: {error}</p>{/if}
+  {#if error}<p class="error statistics-error">{error}</p>{/if}
   {#if report}
     <div class:loading class="statistics-content">
       <section class="statistics-data-section statistics-trend-panel">

@@ -3,6 +3,7 @@
   import { relaunch } from '@tauri-apps/plugin-process';
   import { check } from '@tauri-apps/plugin-updater';
   import { api } from '../lib/api';
+  import { userErrorMessage } from '../lib/errors';
 
   export let autoCheck = true;
   export let skippedVersion: string | null = null;
@@ -44,7 +45,7 @@
       onskip(version);
       dismissed = true;
     } catch (skipError) {
-      error = `スキップ設定を保存できませんでした: ${String(skipError)}`;
+      error = userErrorMessage(skipError, 'スキップ設定を保存できませんでした。');
     }
   }
 
@@ -53,7 +54,7 @@
     try {
       gameIsRunning ||= (await api.status()).games.length > 0;
     } catch (statusError) {
-      error = `ゲームの起動状態を確認できませんでした: ${String(statusError)}`;
+      error = userErrorMessage(statusError, 'ゲームの起動状態を確認できませんでした。');
       return;
     }
     if (gameIsRunning) {
@@ -82,7 +83,7 @@
       });
       await relaunch();
     } catch (installError) {
-      error = `更新できませんでした: ${String(installError)}`;
+      error = userErrorMessage(installError, '更新できませんでした。もう一度お試しください。');
       installing = false;
     }
   }

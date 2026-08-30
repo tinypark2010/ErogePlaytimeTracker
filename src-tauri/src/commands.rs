@@ -5,8 +5,90 @@ use crate::{
 };
 use tauri::State;
 type Cmd<T> = Result<T, String>;
+
+const USER_ERROR_PREFIX: &str = "ept:user-error:";
+const GENERIC_ERROR: &str = "処理を完了できませんでした。しばらくしてからもう一度お試しください。";
+
+fn user_error(message: impl std::fmt::Display) -> String {
+    format!("{USER_ERROR_PREFIX}{message}")
+}
+
 fn err(e: impl std::fmt::Display) -> String {
-    e.to_string()
+    let detail = e.to_string();
+    if let Some(message) = known_error_message(&detail) {
+        return user_error(message);
+    }
+    log::error!("command failed: {detail}");
+    user_error(GENERIC_ERROR)
+}
+
+fn known_error_message(detail: &str) -> Option<&str> {
+    if detail.contains("UNIQUE constraint failed: game_executables.path") {
+        return Some("この実行ファイルはすでに登録されています。");
+    }
+    if detail.contains("UNIQUE constraint failed: games.erogamescape_id") {
+        return Some("このErogameScape IDのゲームはすでに登録されています。");
+    }
+    if detail.starts_with("未対応の修飾キーです:") || detail.starts_with("未対応のキーです:")
+    {
+        return Some("スクリーンショットキーの形式が正しくありません。");
+    }
+    match detail {
+        "バックグラウンド区間がSession範囲外になります" => {
+            return Some("開始・終了日時には、すべての除外区間を含む範囲を指定してください。");
+        }
+        "区間はSession範囲内にしてください" => {
+            return Some("除外区間はセッションの開始・終了日時の範囲内で入力してください。");
+        }
+        "区間が既存の区間と重複しています" => {
+            return Some("既存の除外区間と重複しない日時を入力してください。");
+        }
+        _ => {}
+    }
+
+    const KNOWN_MESSAGES: &[&str] = &[
+        "タイトルは必須です",
+        "ゲームが見つかりません",
+        "起動する実行ファイルが登録されていません",
+        "ErogameScape ID/URLがありません",
+        "有効なErogameScape URLまたはIDを入力してください",
+        "URLのgame IDが不正です",
+        "URLからgame IDを取得できません",
+        "サムネイル画像が見つかりません",
+        "サムネイル画像を読み取れません",
+        "トリミング画像がPNG形式ではありません",
+        "スクリーンショットキーを入力してください",
+        "このキーは別のアプリで使用されています",
+        "開始日時が不正です",
+        "終了日時が不正です",
+        "終了日時は開始日時以降にしてください",
+        "セッションの実行状態は手動変更できません",
+        "セッションが見つかりません",
+        "除外区間の記録状態は手動変更できません",
+        "未対応のプレイ状況です",
+        "プレイ記録ポイントの名称を入力してください",
+        "プレイ記録ポイントの名称は100文字以内にしてください",
+        "プレイ記録ポイントが見つかりません",
+        "記録日時が不正です",
+        "実行ファイルパスが空です",
+        "実行ファイル名を取得できません",
+        "サムネイルはJPG、PNG、WebPを選択してください",
+        "タイトルを解析できません",
+        "ErogameScapeへ接続できません",
+        "ErogameScapeがエラーを返しました",
+        "ErogameScapeの応答が空です",
+        "年を指定してください",
+        "月を指定してください",
+        "統計期間の年月が不正です",
+        "未来の月は選択できません",
+        "統計期間の年が不正です",
+        "未来の年は選択できません",
+        "統計期間の種類が不正です",
+    ];
+    KNOWN_MESSAGES
+        .iter()
+        .copied()
+        .find(|message| detail == *message)
 }
 #[tauri::command]
 pub fn list_games(
@@ -84,9 +166,9 @@ pub fn update_game_play_status(state: State<AppState>, id: i64, status: String) 
 }
 #[tauri::command]
 pub fn open_external_url(url: String) -> Cmd<()> {
-    let parsed = url::Url::parse(&url).map_err(|_| "URLの形式が正しくありません".to_string())?;
+    let parsed = url::Url::parse(&url).map_err(|_| user_error("URLの形式が正しくありません。"))?;
     if !matches!(parsed.scheme(), "http" | "https") {
-        return Err("HTTPまたはHTTPSのURLのみ開けます".into());
+        return Err(user_error("HTTPまたはHTTPSのURLのみ開けます。"));
     }
     let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
     let target: Vec<u16> = parsed
@@ -111,10 +193,8 @@ pub fn open_external_url(url: String) -> Cmd<()> {
         )
     };
     if result.0 as isize <= 32 {
-        Err(format!(
-            "既定のブラウザを開けませんでした (ShellExecute error {})",
-            result.0 as isize
-        ))
+        log::error!("ShellExecuteW failed with code {}", result.0 as isize);
+        Err(user_error("既定のブラウザを開けませんでした。"))
     } else {
         Ok(())
     }
@@ -141,16 +221,19 @@ pub fn launch_game(state: State<AppState>, game_id: i64) -> Cmd<()> {
     let path = state.db.launcher_path(game_id).map_err(err)?;
     let executable = std::path::Path::new(&path);
     if !executable.is_file() {
-        return Err(format!("実行ファイルが見つかりません: {path}"));
+        log::warn!("registered executable not found: {path}");
+        return Err(user_error(
+            "実行ファイルが見つかりません。登録内容を確認してください。",
+        ));
     }
     let mut command = std::process::Command::new(executable);
     if let Some(directory) = executable.parent() {
         command.current_dir(directory);
     }
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("ゲームを起動できません: {e}"))
+    command.spawn().map(|_| ()).map_err(|e| {
+        log::error!("failed to launch registered game executable: {e}");
+        user_error("ゲームを起動できませんでした。実行ファイルを確認してください。")
+    })
 }
 #[tauri::command]
 pub fn list_sessions(state: State<AppState>, game_id: i64) -> Cmd<Vec<PlaySession>> {
@@ -306,7 +389,7 @@ pub async fn refresh_game_metadata(state: State<'_, AppState>, game_id: i64) -> 
     let (id, url) = state.db.metadata_identity(game_id).map_err(err)?;
     let input = url
         .or_else(|| id.map(|x| x.to_string()))
-        .ok_or("ErogameScape ID/URLがありません")?;
+        .ok_or_else(|| user_error("ErogameScape ID/URLがありません"))?;
     let m = ErogameScapeProvider::new()
         .map_err(err)?
         .fetch_game(&input)
@@ -338,7 +421,7 @@ pub fn update_settings(
     mut settings: AppSettings,
 ) -> Cmd<()> {
     if !matches!(settings.theme.as_str(), "dark" | "light" | "pink" | "blue") {
-        return Err("未対応のカラーテーマです".into());
+        return Err(user_error("未対応のカラーテーマです。"));
     }
     crate::screenshot::validate_hotkey(&settings.screenshot_hotkey).map_err(err)?;
     use tauri_plugin_autostart::ManagerExt;
@@ -441,8 +524,42 @@ pub fn open_screenshot_directory(state: State<AppState>, game_id: i64) -> Cmd<()
         )
     };
     if result.0 as isize <= 32 {
-        Err("スクリーンショットの保存先を開けませんでした".into())
+        log::error!("failed to open screenshot directory: ShellExecuteW returned {result:?}");
+        Err(user_error("スクリーンショットの保存先を開けませんでした。"))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_known_validation_and_unique_errors_to_public_messages() {
+        assert_eq!(
+            err("終了日時は開始日時以降にしてください"),
+            user_error("終了日時は開始日時以降にしてください")
+        );
+        assert_eq!(
+            err("UNIQUE constraint failed: game_executables.path"),
+            user_error("この実行ファイルはすでに登録されています。")
+        );
+        assert_eq!(
+            err("UNIQUE constraint failed: games.erogamescape_id"),
+            user_error("このErogameScape IDのゲームはすでに登録されています。")
+        );
+        assert_eq!(
+            err("区間が既存の区間と重複しています"),
+            user_error("既存の除外区間と重複しない日時を入力してください。")
+        );
+    }
+
+    #[test]
+    fn replaces_unexpected_internal_errors() {
+        let message = err("database failure in play_sessions at a private path");
+        assert_eq!(message, user_error(GENERIC_ERROR));
+        assert!(!message.contains("play_sessions"));
+        assert!(!message.contains("private path"));
     }
 }

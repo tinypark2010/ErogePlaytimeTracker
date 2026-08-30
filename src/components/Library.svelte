@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
+  import { userErrorMessage } from '../lib/errors';
   import { duration, lastPlayed, imageSrc, playStatusLabel, playStatusOptions } from '../lib/time';
   import type { GameSummary, SortKey } from '../lib/types';
   type ViewMode = 'grid' | 'list' | 'table';
@@ -24,7 +25,7 @@
     try {
       games = await api.listGames(search, brand, playStatus, sort, descending);
     } catch (e) {
-      error = String(e);
+      error = userErrorMessage(e, 'ライブラリを読み込めませんでした。');
     }
   }
   $: {
@@ -41,7 +42,7 @@
     api
       .listBrands()
       .then((value) => (brands = value))
-      .catch((e) => (error = String(e)));
+      .catch((e) => (error = userErrorMessage(e, 'ブランド一覧を読み込めませんでした。')));
     const timer = setInterval(load, 1000);
     return () => clearInterval(timer);
   });
@@ -53,7 +54,7 @@
     try {
       await api.launchGame(gameId);
     } catch (e) {
-      error = String(e);
+      error = userErrorMessage(e, 'ゲームを起動できませんでした。');
     }
   }
   function openTableRow(event: KeyboardEvent, gameId: number) {
