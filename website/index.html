@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Eroge Playtime Tracker | エロゲのプレイ時間を記録</title>
+    <title>エロゲのプレイ時間を自動計測・記録 | Eroge Playtime Tracker</title>
     <meta
       name="description"
-      content="登録したエロゲの起動を検出してプレイ時間を自動で記録し、履歴や統計を確認できるEroge Playtime Trackerの紹介ページです。"
+      content="Windows 10/11でエロゲの起動・終了を検知し、バックグラウンド時間を除いてプレイ時間を自動計測・記録する無料アプリ。履歴・統計・推移グラフをPC内で確認できます。"
     />
     <meta name="theme-color" content="#fff4f8" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
@@ -14,10 +14,13 @@
     <meta property="og:locale" content="ja_JP" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Eroge Playtime Tracker" />
-    <meta property="og:title" content="Eroge Playtime Tracker" />
+    <meta
+      property="og:title"
+      content="エロゲのプレイ時間を自動計測・記録 | Eroge Playtime Tracker"
+    />
     <meta
       property="og:description"
-      content="登録したエロゲの起動を検出して、プレイ時間を自動で記録します。"
+      content="ゲームの起動・終了を検知し、バックグラウンド時間を除いてプレイ時間を自動で記録するWindowsアプリです。"
     />
     <meta property="og:url" content="https://tinypark2010.github.io/ErogePlaytimeTracker/" />
     <meta name="twitter:card" content="summary" />
@@ -28,7 +31,8 @@
         "@type": "SoftwareApplication",
         "name": "Eroge Playtime Tracker",
         "applicationCategory": "UtilitiesApplication",
-        "description": "登録したエロゲの起動を検出して、プレイ時間を自動で記録するアプリです。",
+        "description": "ゲームの起動・終了を検知し、バックグラウンド時間を除いてエロゲのプレイ時間を自動計測・記録するWindowsアプリです。",
+        "operatingSystem": "Windows 10, Windows 11",
         "downloadUrl": "https://github.com/tinypark2010/ErogePlaytimeTracker/releases/latest",
         "sameAs": "https://github.com/tinypark2010/ErogePlaytimeTracker",
         "license": "https://opensource.org/license/mit",
@@ -47,8 +51,9 @@
       <a class="site-name" href="#top"><span aria-hidden="true"></span>Eroge Playtime Tracker</a>
       <nav aria-label="メインナビゲーション">
         <a href="#screens">画面</a>
+        <a href="#getting-started">使い方</a>
         <a href="#tracking">計測方法</a>
-        <a href="#download">ダウンロード</a>
+        <a href="#faq">FAQ</a>
       </nav>
       <a
         class="github-link"
@@ -63,8 +68,18 @@
       <section class="hero" id="top">
         <div class="hero-copy">
           <p class="eyebrow">Eroge Playtime Tracker</p>
-          <h1>エロゲの<br />プレイ時間を記録</h1>
-          <p class="hero-lead">登録したゲームの起動を検出して、プレイ時間を自動で記録します。</p>
+          <h1>
+            <span>エロゲのプレイ時間を</span>
+            <span>自動計測・記録</span>
+          </h1>
+          <p class="hero-lead">
+            ゲームの起動・終了を検知し、バックグラウンド時間を除いてプレイ時間を自動で記録します。
+          </p>
+          <ul class="hero-facts" aria-label="主な特徴">
+            <li>Windows 10 / 11 x64</li>
+            <li>無料・オープンソース</li>
+            <li>履歴はPC内保存・外部送信なし</li>
+          </ul>
           <div class="hero-actions">
             <a
               class="button primary-button"
@@ -84,6 +99,40 @@
           decoding="async"
           fetchpriority="high"
         />
+      </section>
+
+      <section class="getting-started" id="getting-started">
+        <h2>3ステップで自動記録</h2>
+        <p class="section-lead">
+          インストール後はゲームの実行ファイルを登録するだけです。計測中はEroge Playtime
+          Trackerを起動しておきます。
+        </p>
+        <ol class="setup-steps">
+          <li>
+            <span aria-hidden="true">1</span>
+            <div>
+              <h3>インストール</h3>
+              <p>最新版のWindows x64用インストーラーをダウンロードして実行します。</p>
+            </div>
+          </li>
+          <li>
+            <span aria-hidden="true">2</span>
+            <div>
+              <h3>ゲームを登録</h3>
+              <p>
+                実行ファイルを選びます。ErogameScapeのURLまたはgame
+                IDからタイトルやブランドなども取得できます。
+              </p>
+            </div>
+          </li>
+          <li>
+            <span aria-hidden="true">3</span>
+            <div>
+              <h3>起動して記録</h3>
+              <p>登録したゲームを起動すると、1回の起動を1セッションとして自動で記録します。</p>
+            </div>
+          </li>
+        </ol>
       </section>
 
       <section class="screens" id="screens">
@@ -272,8 +321,39 @@
           登録したゲームの起動と終了を検知し、1回の起動を1つのセッションとして記録します。プレイ時間は、記録したセッションの開始時刻と終了時刻をもとに算出します。
         </p>
         <p>
-          ゲームの起動中は、対象のゲームがフォアグラウンドにあるかバックグラウンドにあるかも検知し、バックグラウンドにあった期間を記録します。セッションの開始から終了までの時間から、その期間を除いた時間がプレイ時間になります。
+          ゲームのウィンドウが表示されていても、ほかのアプリを操作している間はバックグラウンド区間として記録します。セッションの開始から終了までの時間から、この区間を除いた時間がプレイ時間になります。
         </p>
+      </section>
+
+      <section class="faq" id="faq">
+        <h2>よくある質問</h2>
+        <div class="faq-list">
+          <details>
+            <summary>計測中はアプリを起動しておく必要がありますか？</summary>
+            <p>
+              はい。Eroge Playtime
+              Trackerを起動しておく必要があります。設定からWindowsログイン時の自動起動を有効にできます。
+            </p>
+          </details>
+          <details>
+            <summary>ゲームがバックグラウンドにある時間も加算されますか？</summary>
+            <p>
+              いいえ。ゲームのウィンドウが表示されていて、そのゲームがフォアグラウンドではない期間はバックグラウンドとして記録し、セッション時間から除外します。
+            </p>
+          </details>
+          <details>
+            <summary>Steam以外のゲームも登録できますか？</summary>
+            <p>
+              はい。Steamとの連携を前提とせず、Windowsの実行ファイルを選んでゲームを登録します。
+            </p>
+          </details>
+          <details>
+            <summary>記録はあとから修正できますか？</summary>
+            <p>
+              はい。ゲーム詳細画面から手動セッションを追加し、セッション日時やバックグラウンド区間を編集・削除できます。
+            </p>
+          </details>
+        </div>
       </section>
 
       <section class="download" id="download" aria-label="ダウンロード">
