@@ -1,8 +1,9 @@
 # Eroge Playtime Tracker
 
-エロゲのプレイ時間を管理するツールです。
+エロゲのプレイ時間を自動計測・記録するWindows向けアプリです。
 
-登録したゲームの起動を検出し、プレイ時間を記録します。
+[公式サイト](https://tinypark2010.github.io/ErogePlaytimeTracker/) |
+[最新版をダウンロード](https://github.com/tinypark2010/ErogePlaytimeTracker/releases/latest)
 
 ## 主な機能
 
