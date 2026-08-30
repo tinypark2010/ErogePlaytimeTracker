@@ -18,11 +18,37 @@ function validateRange(start: string, end: string, emptyMessage: string) {
   return '';
 }
 
-export function validateManualSession(start: string, end: string) {
-  return validateRange(start, end, '開始日時と終了日時を入力してください。');
+function overlapsExistingRange(
+  startMs: number,
+  endMs: number,
+  ranges: HistoryRange[],
+  excludedId?: number,
+) {
+  return ranges.some((range) => {
+    if (range.id === excludedId) return false;
+    const rangeStartMs = timestamp(range.start);
+    const rangeEndMs = range.end ? timestamp(range.end) : Number.POSITIVE_INFINITY;
+    return (
+      rangeStartMs !== null && rangeEndMs !== null && endMs > rangeStartMs && rangeEndMs > startMs
+    );
+  });
 }
 
-export function validateSessionEdit(start: string, end: string, intervals: HistoryRange[]) {
+export function validateManualSession(start: string, end: string, sessions: HistoryRange[] = []) {
+  const rangeError = validateRange(start, end, '開始日時と終了日時を入力してください。');
+  if (rangeError) return rangeError;
+  return overlapsExistingRange(timestamp(start)!, timestamp(end)!, sessions)
+    ? '既存のセッションと重複しない日時を入力してください。'
+    : '';
+}
+
+export function validateSessionEdit(
+  start: string,
+  end: string,
+  intervals: HistoryRange[],
+  sessions: HistoryRange[] = [],
+  excludedSessionId?: number,
+) {
   if (!start || !end) return '開始日時と終了日時を入力してください。';
   const startMs = timestamp(start);
   const endMs = timestamp(end);
@@ -39,12 +65,20 @@ export function validateSessionEdit(start: string, end: string, intervals: Histo
       intervalEndMs > endMs
     );
   });
-  return intervalOutsideSession
-    ? '開始・終了日時には、すべての除外区間を含む範囲を指定してください。'
+  if (intervalOutsideSession) {
+    return '開始・終了日時には、すべての除外区間を含む範囲を指定してください。';
+  }
+  return overlapsExistingRange(startMs, endMs, sessions, excludedSessionId)
+    ? '既存のセッションと重複しない日時を入力してください。'
     : '';
 }
 
-export function validateRunningSessionEdit(start: string, intervals: HistoryRange[]) {
+export function validateRunningSessionEdit(
+  start: string,
+  intervals: HistoryRange[],
+  sessions: HistoryRange[] = [],
+  excludedSessionId?: number,
+) {
   if (!start) return '開始日時を入力してください。';
   const startMs = timestamp(start);
   if (startMs === null) return '日時を正しく入力してください。';
@@ -52,8 +86,11 @@ export function validateRunningSessionEdit(start: string, intervals: HistoryRang
     const intervalStartMs = timestamp(interval.start);
     return intervalStartMs === null || intervalStartMs < startMs;
   });
-  return intervalOutsideSession
-    ? '開始日時には、すべての除外区間を含む範囲を指定してください。'
+  if (intervalOutsideSession) {
+    return '開始日時には、すべての除外区間を含む範囲を指定してください。';
+  }
+  return overlapsExistingRange(startMs, Number.POSITIVE_INFINITY, sessions, excludedSessionId)
+    ? '既存のセッションと重複しない日時を入力してください。'
     : '';
 }
 
@@ -88,16 +125,6 @@ export function validateBackgroundInterval(
     return '除外区間はセッションの開始・終了日時の範囲内で入力してください。';
   }
 
-  const overlaps = intervals.some((interval) => {
-    if (interval.id === excludedIntervalId) return false;
-    const intervalStartMs = timestamp(interval.start);
-    const intervalEndMs = interval.end ? timestamp(interval.end) : Number.POSITIVE_INFINITY;
-    return (
-      intervalStartMs !== null &&
-      intervalEndMs !== null &&
-      endMs > intervalStartMs &&
-      intervalEndMs > startMs
-    );
-  });
+  const overlaps = overlapsExistingRange(startMs, endMs, intervals, excludedIntervalId);
   return overlaps ? '既存の除外区間と重複しない日時を入力してください。' : '';
 }
