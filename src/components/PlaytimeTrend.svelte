@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
+    advanceChartInertia,
     chartAxisTicks,
+    chartPanScrollLeft,
     compactDuration,
     dailyTrend,
     formatDateKey,
@@ -19,6 +21,7 @@
   const plotTop = 14;
   const plotBottom = 140;
   const plotHeight = plotBottom - plotTop;
+  const panThreshold = 4;
   const gameColors = [
     '#9b7be8',
     '#d06f8d',
@@ -43,9 +46,20 @@
   let chartPixelHeight = chartViewHeight;
   let chartPixelScale = 1;
   let chartPixelOffset = 0;
+  let panPointerId: number | null = null;
+  let panStartX = 0;
+  let panStartScrollLeft = 0;
+  let panLastScrollLeft = 0;
+  let panLastTime = 0;
+  let panVelocity = 0;
+  let panning = false;
+  let suppressClickUntil = 0;
+  let inertiaFrame: number | null = null;
 
   $: points = dailyTrend(days);
   $: if (days !== currentDays) {
+    stopInertia();
+    resetPan();
     currentDays = days;
     hoverIndex = null;
     pinnedIndex = null;
@@ -97,6 +111,8 @@
       document.removeEventListener('click', handleDocumentClick);
       viewportElement.removeEventListener('wheel', handleWheel);
       resizeObserver.disconnect();
+      stopInertia();
+      resetPan();
     };
   });
 
@@ -174,6 +190,117 @@
     hoverIndex = indexFromPointer(event);
   }
 
+  function maximumScrollLeft() {
+    return Math.max(0, viewportElement.scrollWidth - viewportElement.clientWidth);
+  }
+
+  function stopInertia() {
+    if (inertiaFrame !== null) cancelAnimationFrame(inertiaFrame);
+    inertiaFrame = null;
+  }
+
+  function resetPan() {
+    if (panPointerId !== null && chartElement?.hasPointerCapture(panPointerId)) {
+      chartElement.releasePointerCapture(panPointerId);
+    }
+    panPointerId = null;
+    panning = false;
+    panVelocity = 0;
+    suppressClickUntil = 0;
+  }
+
+  function startInertia(initialVelocity: number) {
+    stopInertia();
+    let velocity = initialVelocity;
+    let previousTime = performance.now();
+
+    function move(timestamp: number) {
+      const next = advanceChartInertia(
+        viewportElement.scrollLeft,
+        velocity,
+        timestamp - previousTime,
+        maximumScrollLeft(),
+      );
+      viewportElement.scrollLeft = next.scrollLeft;
+      velocity = next.velocity;
+      previousTime = timestamp;
+      if (velocity === 0) {
+        inertiaFrame = null;
+        return;
+      }
+      inertiaFrame = requestAnimationFrame(move);
+    }
+
+    inertiaFrame = requestAnimationFrame(move);
+  }
+
+  function handlePointerDown(event: PointerEvent) {
+    if (zoom <= 1.01 || !event.isPrimary || event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest('.statistics-chart-tooltip'))
+      return;
+
+    stopInertia();
+    panPointerId = event.pointerId;
+    panStartX = event.clientX;
+    panStartScrollLeft = viewportElement.scrollLeft;
+    panLastScrollLeft = viewportElement.scrollLeft;
+    panLastTime = event.timeStamp;
+    panVelocity = 0;
+    panning = false;
+    suppressClickUntil = 0;
+    chartElement.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: PointerEvent) {
+    if (panPointerId === event.pointerId) {
+      const pointerDeltaX = event.clientX - panStartX;
+      if (!panning && Math.abs(pointerDeltaX) >= panThreshold) {
+        panning = true;
+        hoverIndex = null;
+      }
+      if (panning) {
+        const nextScrollLeft = chartPanScrollLeft(
+          panStartScrollLeft,
+          pointerDeltaX,
+          maximumScrollLeft(),
+        );
+        const elapsedMs = Math.max(1, event.timeStamp - panLastTime);
+        const frameVelocity = (nextScrollLeft - panLastScrollLeft) / elapsedMs;
+        panVelocity = panVelocity * 0.65 + frameVelocity * 0.35;
+        viewportElement.scrollLeft = nextScrollLeft;
+        panLastScrollLeft = nextScrollLeft;
+        panLastTime = event.timeStamp;
+        event.preventDefault();
+        return;
+      }
+    }
+    selectFromPointer(event);
+  }
+
+  function handlePointerEnd(event: PointerEvent, cancelled = false) {
+    if (panPointerId !== event.pointerId) return;
+    if (chartElement.hasPointerCapture(event.pointerId)) {
+      chartElement.releasePointerCapture(event.pointerId);
+    }
+
+    const wasPanning = panning;
+    const idleMs = Math.max(0, event.timeStamp - panLastTime);
+    const releaseVelocity = panVelocity * Math.max(0, 1 - idleMs / 100);
+    panPointerId = null;
+    panning = false;
+    panVelocity = 0;
+
+    if (!wasPanning) return;
+    suppressClickUntil = event.timeStamp + 500;
+    if (
+      !cancelled &&
+      Math.abs(releaseVelocity) >= 0.02 &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      startInertia(releaseVelocity);
+    }
+  }
+
   function handleWheel(event: WheelEvent) {
     if (
       pinnedIndex !== null &&
@@ -187,6 +314,7 @@
       event.preventDefault();
       return;
     }
+    stopInertia();
     const nextZoom = nextChartZoom(zoom, maximumZoom, event.deltaY, event.deltaMode);
     event.preventDefault();
     if (Math.abs(nextZoom - zoom) < 0.001) return;
@@ -201,6 +329,11 @@
   }
 
   function handleChartClick(event: MouseEvent) {
+    if (event.timeStamp < suppressClickUntil) {
+      suppressClickUntil = 0;
+      return;
+    }
+    suppressClickUntil = 0;
     if (!points.length) return;
     const index = indexFromPointer(event);
     if (pinnedIndex !== null) {
@@ -262,7 +395,12 @@
         aria-valuemax={Math.max(0, points.length - 1)}
         aria-valuenow={accessibleIndex}
         aria-valuetext={accessibleValue}
-        onpointermove={selectFromPointer}
+        class:draggable={zoom > 1.01}
+        class:panning
+        onpointerdown={handlePointerDown}
+        onpointermove={handlePointerMove}
+        onpointerup={handlePointerEnd}
+        onpointercancel={(event) => handlePointerEnd(event, true)}
         onpointerleave={() => {
           if (pinnedIndex === null) hoverIndex = null;
         }}

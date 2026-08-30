@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { chartAxisTicks, compactDuration, dailyTrend, nextChartZoom } from './statistics';
+import {
+  advanceChartInertia,
+  chartAxisTicks,
+  chartPanScrollLeft,
+  compactDuration,
+  dailyTrend,
+  nextChartZoom,
+} from './statistics';
 import type { StatisticsDay } from './types';
 
 function day(date: string, playtime_seconds: number): StatisticsDay {
@@ -56,5 +63,24 @@ describe('statistics helpers', () => {
     expect(zoomedIn).toBeGreaterThan(1);
     expect(nextChartZoom(zoomedIn, 8, 120, 0)).toBeCloseTo(1);
     expect(nextChartZoom(1, 8, 120, 0)).toBe(1);
+  });
+
+  it('moves a zoomed chart with the pointer and keeps the scroll position in range', () => {
+    expect(chartPanScrollLeft(300, 80, 600)).toBe(220);
+    expect(chartPanScrollLeft(300, -80, 600)).toBe(380);
+    expect(chartPanScrollLeft(30, 80, 600)).toBe(0);
+    expect(chartPanScrollLeft(580, -80, 600)).toBe(600);
+  });
+
+  it('continues chart movement with decreasing velocity and stops at an edge', () => {
+    const next = advanceChartInertia(200, 1, 16, 600);
+    expect(next.scrollLeft).toBeGreaterThan(200);
+    expect(next.velocity).toBeGreaterThan(0);
+    expect(next.velocity).toBeLessThan(1);
+
+    expect(advanceChartInertia(595, 1, 16, 600)).toEqual({
+      scrollLeft: 600,
+      velocity: 0,
+    });
   });
 });

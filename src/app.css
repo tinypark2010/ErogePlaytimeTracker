@@ -2964,12 +2964,22 @@ button.primary:disabled:hover {
 .statistics-chart-interaction {
   outline: none;
 }
+.statistics-chart-interaction.draggable {
+  touch-action: pan-y;
+  user-select: none;
+}
 .statistics-chart {
   display: block;
   width: 100%;
   min-height: 125px;
   overflow: visible;
   cursor: crosshair;
+}
+.statistics-chart-interaction.draggable .statistics-chart {
+  cursor: grab;
+}
+.statistics-chart-interaction.panning .statistics-chart {
+  cursor: grabbing;
 }
 .statistics-chart-interaction:focus-visible {
   outline: 1px solid var(--statistics-accent);
