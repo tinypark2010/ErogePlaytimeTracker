@@ -1851,7 +1851,22 @@ button.primary:disabled:hover {
   gap: 0.65rem;
   flex-wrap: wrap;
 }
+.game-executable-section {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ffffff18;
+}
+.game-executable-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.executable-add-row {
+  margin-top: 0.45rem;
+}
 :root[data-theme]:not([data-theme='dark']) .game-info dl > div {
+  border-color: #00000014;
+}
+:root[data-theme]:not([data-theme='dark']) .game-executable-section {
   border-color: #00000014;
 }
 :root[data-theme]:not([data-theme='dark']) .game-info dt {
@@ -2596,6 +2611,13 @@ button.primary:disabled:hover {
 .timestamp-times strong {
   color: #a88aff;
 }
+.session-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
 :root[data-theme]:not([data-theme='dark']) .timestamp-item {
   border-color: #00000014;
 }
@@ -2611,6 +2633,15 @@ button.primary:disabled:hover {
   }
   .timestamp-time-input {
     max-width: 560px;
+  }
+}
+@media (max-width: 700px) {
+  .session-history-panel .panel-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .session-heading-actions {
+    justify-content: flex-start;
   }
 }
 @media (max-width: 600px) {

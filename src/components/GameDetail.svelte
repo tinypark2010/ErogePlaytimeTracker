@@ -826,57 +826,22 @@
             </dd>
           </div>
         </dl>{/if}
-    </section>
-    <section class="panel screenshot-panel">
-      <div class="panel-heading">
-        <h2>スクリーンショット</h2>
-        <div class="screenshot-heading-actions">
-          <small>{screenshots.length}枚</small>
-          <label class="page-size-control"
-            >表示<select
-              value={screenshotPageSize}
-              onchange={(event) => {
-                screenshotPageSize = Number((event.currentTarget as HTMLSelectElement).value);
-                screenshotPage = 1;
-              }}
-              >{#each pageSizeOptions as size}<option value={size}>{size}件</option>{/each}</select
-            ></label
-          >
-          <button onclick={openScreenshotDirectory}>保存先を開く</button>
+      <div class="game-executable-section">
+        <h3>実行ファイル</h3>
+        {#each game.executables as x}<div class="listrow">
+            <code>{x.path}</code><DeleteButton
+              title="実行ファイル登録の削除"
+              message={`実行ファイル「${x.path}」の登録を削除します。ファイル自体は削除されません。`}
+              onconfirm={() => removeExe(x.id)}
+            />
+          </div>{/each}
+        <div class="row executable-add-row">
+          <input bind:value={newPath} placeholder="exeを選択してください" readonly /><button
+            type="button"
+            onclick={selectExe}>参照…</button
+          ><button onclick={addExe}>追加</button>
         </div>
       </div>
-      {#if screenshots.length}
-        <div class="screenshot-grid">
-          {#each pagedScreenshots as shot}
-            <article class="screenshot-card">
-              <button class="screenshot-preview" onclick={() => (selectedScreenshot = shot)}>
-                <img
-                  src={imageSrc(shot.path)}
-                  alt={`${local(shot.captured_at)}のスクリーンショット`}
-                />
-              </button>
-              <div>
-                <small>{local(shot.captured_at)}</small>
-              </div>
-            </article>
-          {/each}
-        </div>
-        {#if screenshotPageCount > 1}<div
-            class="pagination"
-            aria-label="スクリーンショットのページ移動"
-          >
-            <button disabled={screenshotPage === 1} onclick={() => (screenshotPage -= 1)}
-              >← 前へ</button
-            >
-            <span>{screenshotPage} / {screenshotPageCount}</span>
-            <button
-              disabled={screenshotPage === screenshotPageCount}
-              onclick={() => (screenshotPage += 1)}>次へ →</button
-            >
-          </div>{/if}
-      {:else}
-        <p class="hint">計測中のゲームがフォアグラウンドにあるとき、設定したキーで撮影できます。</p>
-      {/if}
     </section>
     <section class="panel timestamp-panel">
       <div class="panel-heading"><h2>タイムスタンプ</h2></div>
@@ -970,42 +935,24 @@
           </article>{/each}
       </div>
     </section>
-    <section class="panel">
-      <h2>実行ファイル</h2>
-      {#each game.executables as x}<div class="listrow">
-          <code>{x.path}</code><DeleteButton
-            title="実行ファイル登録の削除"
-            message={`実行ファイル「${x.path}」の登録を削除します。ファイル自体は削除されません。`}
-            onconfirm={() => removeExe(x.id)}
-          />
-        </div>{/each}
-      <div class="row">
-        <input bind:value={newPath} placeholder="exeを選択してください" readonly /><button
-          type="button"
-          onclick={selectExe}>参照…</button
-        ><button onclick={addExe}>追加</button>
-      </div>
-    </section>
-    <section class="panel">
-      <h2>手動セッション追加</h2>
-      <p class="hint">開始日時と終了日時を指定して、過去のプレイ記録を追加できます。</p>
-      <button class="primary" type="button" onclick={beginManualSession}
-        >手動セッションを追加</button
-      >
-    </section>
-    <section class="panel">
+    <section class="panel session-history-panel">
       <div class="panel-heading">
         <h2>Session History</h2>
-        <label class="page-size-control"
-          >表示<select
-            value={sessionPageSize}
-            onchange={(event) => {
-              sessionPageSize = Number((event.currentTarget as HTMLSelectElement).value);
-              sessionPage = 1;
-            }}
-            >{#each pageSizeOptions as size}<option value={size}>{size}件</option>{/each}</select
-          ></label
-        >
+        <div class="session-heading-actions">
+          <button class="primary" type="button" onclick={beginManualSession}
+            >手動セッションを追加</button
+          >
+          <label class="page-size-control"
+            >表示<select
+              value={sessionPageSize}
+              onchange={(event) => {
+                sessionPageSize = Number((event.currentTarget as HTMLSelectElement).value);
+                sessionPage = 1;
+              }}
+              >{#each pageSizeOptions as size}<option value={size}>{size}件</option>{/each}</select
+            ></label
+          >
+        </div>
       </div>
       {#each pagedSessions as s}<HistoryDataRow
           label={`${local(s.launched_at)} → ${local(s.exited_at)}${s.needs_review ? ' ・ 要確認' : ''}`}
@@ -1021,6 +968,57 @@
             >次へ →</button
           >
         </div>{/if}
+    </section>
+    <section class="panel screenshot-panel">
+      <div class="panel-heading">
+        <h2>スクリーンショット</h2>
+        <div class="screenshot-heading-actions">
+          <small>{screenshots.length}枚</small>
+          <label class="page-size-control"
+            >表示<select
+              value={screenshotPageSize}
+              onchange={(event) => {
+                screenshotPageSize = Number((event.currentTarget as HTMLSelectElement).value);
+                screenshotPage = 1;
+              }}
+              >{#each pageSizeOptions as size}<option value={size}>{size}件</option>{/each}</select
+            ></label
+          >
+          <button onclick={openScreenshotDirectory}>保存先を開く</button>
+        </div>
+      </div>
+      {#if screenshots.length}
+        <div class="screenshot-grid">
+          {#each pagedScreenshots as shot}
+            <article class="screenshot-card">
+              <button class="screenshot-preview" onclick={() => (selectedScreenshot = shot)}>
+                <img
+                  src={imageSrc(shot.path)}
+                  alt={`${local(shot.captured_at)}のスクリーンショット`}
+                />
+              </button>
+              <div>
+                <small>{local(shot.captured_at)}</small>
+              </div>
+            </article>
+          {/each}
+        </div>
+        {#if screenshotPageCount > 1}<div
+            class="pagination"
+            aria-label="スクリーンショットのページ移動"
+          >
+            <button disabled={screenshotPage === 1} onclick={() => (screenshotPage -= 1)}
+              >← 前へ</button
+            >
+            <span>{screenshotPage} / {screenshotPageCount}</span>
+            <button
+              disabled={screenshotPage === screenshotPageCount}
+              onclick={() => (screenshotPage += 1)}>次へ →</button
+            >
+          </div>{/if}
+      {:else}
+        <p class="hint">計測中のゲームがフォアグラウンドにあるとき、設定したキーで撮影できます。</p>
+      {/if}
     </section>
     <section class="panel danger-zone">
       <div class="danger-zone-heading">
