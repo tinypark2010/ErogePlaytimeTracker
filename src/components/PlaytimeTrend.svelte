@@ -31,6 +31,7 @@
     '#cb685e',
     '#4a9b83',
   ];
+  let chartContainerElement: HTMLDivElement;
   let chartElement: HTMLDivElement;
   let chartSvgElement: SVGSVGElement;
   let viewportElement: HTMLDivElement;
@@ -43,6 +44,9 @@
   let chartPixelHeight = chartViewHeight;
   let chartPixelScale = 1;
   let chartPixelOffset = 0;
+  let tooltipLeft = 0;
+  let tooltipAlignStart = false;
+  let tooltipAlignEnd = false;
 
   $: points = dailyTrend(days);
   $: if (days !== currentDays) {
@@ -76,9 +80,10 @@
   $: accessibleValue = accessiblePoint
     ? `${formatDateKey(accessiblePoint.date)}、合計${compactDuration(accessiblePoint.playtime_seconds)}、累計${compactDuration(accessiblePoint.cumulative_seconds)}`
     : 'データなし';
-  $: tooltipPosition =
-    activeIndex === null ? 50 : ((activeIndex + 0.5) / Math.max(1, points.length)) * 100;
   $: if (chartSvgElement && chartWidth) requestAnimationFrame(syncAxisLayout);
+  $: if (activeIndex !== null && chartContainerElement && viewportElement && chartWidth) {
+    requestAnimationFrame(syncTooltipPosition);
+  }
 
   onMount(() => {
     function handleDocumentClick(event: MouseEvent) {
@@ -90,12 +95,14 @@
 
     document.addEventListener('click', handleDocumentClick);
     viewportElement.addEventListener('wheel', handleWheel, { passive: false });
+    viewportElement.addEventListener('scroll', syncTooltipPosition);
     const resizeObserver = new ResizeObserver(syncAxisLayout);
     resizeObserver.observe(chartSvgElement);
     syncAxisLayout();
     return () => {
       document.removeEventListener('click', handleDocumentClick);
       viewportElement.removeEventListener('wheel', handleWheel);
+      viewportElement.removeEventListener('scroll', syncTooltipPosition);
       resizeObserver.disconnect();
     };
   });
@@ -108,6 +115,32 @@
     chartPixelHeight = bounds.height;
     chartPixelScale = scale;
     chartPixelOffset = (bounds.height - chartViewHeight * scale) / 2;
+    syncTooltipPosition();
+  }
+
+  function syncTooltipPosition() {
+    if (activeIndex === null || !points.length || !chartContainerElement || !viewportElement)
+      return;
+
+    const chartBounds = chartContainerElement.getBoundingClientRect();
+    const viewportBounds = viewportElement.getBoundingClientRect();
+    const pointRatio = (activeIndex + 0.5) / points.length;
+    const pointLeft =
+      viewportBounds.left -
+      chartBounds.left +
+      pointRatio * viewportElement.scrollWidth -
+      viewportElement.scrollLeft;
+    const tooltipWidth = tooltipElement?.offsetWidth ?? Math.min(310, chartBounds.width - 8);
+    const edgeInset = 4;
+
+    tooltipAlignStart = pointLeft - tooltipWidth / 2 < edgeInset;
+    tooltipAlignEnd =
+      !tooltipAlignStart && pointLeft + tooltipWidth / 2 > chartBounds.width - edgeInset;
+    tooltipLeft = tooltipAlignStart
+      ? edgeInset
+      : tooltipAlignEnd
+        ? chartBounds.width - edgeInset
+        : pointLeft;
   }
 
   function axisTickTop(ratio: number) {
@@ -239,7 +272,7 @@
   }
 </script>
 
-<div class="statistics-combined-chart">
+<div bind:this={chartContainerElement} class="statistics-combined-chart">
   <div
     class="statistics-chart-y-axis daily"
     style={`height: ${chartPixelHeight}px`}
@@ -332,49 +365,49 @@
           {/if}
         </svg>
       </div>
-      {#if activePoint}
-        <div
-          bind:this={tooltipElement}
-          class:pinned={pinnedIndex !== null}
-          class:align-start={tooltipPosition < 25}
-          class:align-end={tooltipPosition > 75}
-          class="statistics-chart-tooltip"
-          style={`left: ${tooltipPosition}%`}
-          aria-live="polite"
-        >
-          <strong>{formatDateKey(activePoint.date)}</strong>
-          <dl>
-            <div>
-              <dt>合計</dt>
-              <dd>{compactDuration(activePoint.playtime_seconds)}</dd>
-            </div>
-            <div>
-              <dt>累計</dt>
-              <dd>{compactDuration(activePoint.cumulative_seconds)}</dd>
-            </div>
-          </dl>
-          {#if activeGames.length}
-            <ul>
-              {#each activeGames as game}<li style={`--game-color: ${gameColor(game.game_id)}`}>
-                  <span class="statistics-chart-game">
-                    <span class="statistics-chart-game-image">
-                      {#if game.thumbnail_path}<img
-                          src={imageSrc(game.thumbnail_path)}
-                          alt=""
-                        />{:else}<i></i>{/if}
-                    </span>
-                    <span class="statistics-chart-game-title">{game.title}</span>
-                  </span>
-                  <strong>{compactDuration(game.playtime_seconds)}</strong>
-                </li>{/each}
-            </ul>
-          {:else}
-            <p>プレイ記録なし</p>
-          {/if}
-        </div>
-      {/if}
     </div>
   </div>
+  {#if activePoint}
+    <div
+      bind:this={tooltipElement}
+      class:pinned={pinnedIndex !== null}
+      class:align-start={tooltipAlignStart}
+      class:align-end={tooltipAlignEnd}
+      class="statistics-chart-tooltip"
+      style={`left: ${tooltipLeft}px`}
+      aria-live="polite"
+    >
+      <strong>{formatDateKey(activePoint.date)}</strong>
+      <dl>
+        <div>
+          <dt>合計</dt>
+          <dd>{compactDuration(activePoint.playtime_seconds)}</dd>
+        </div>
+        <div>
+          <dt>累計</dt>
+          <dd>{compactDuration(activePoint.cumulative_seconds)}</dd>
+        </div>
+      </dl>
+      {#if activeGames.length}
+        <ul>
+          {#each activeGames as game}<li style={`--game-color: ${gameColor(game.game_id)}`}>
+              <span class="statistics-chart-game">
+                <span class="statistics-chart-game-image">
+                  {#if game.thumbnail_path}<img
+                      src={imageSrc(game.thumbnail_path)}
+                      alt=""
+                    />{:else}<i></i>{/if}
+                </span>
+                <span class="statistics-chart-game-title">{game.title}</span>
+              </span>
+              <strong>{compactDuration(game.playtime_seconds)}</strong>
+            </li>{/each}
+        </ul>
+      {:else}
+        <p>プレイ記録なし</p>
+      {/if}
+    </div>
+  {/if}
   {#if zoom > 1.01}
     <span class="statistics-chart-edge-fade start" aria-hidden="true"></span>
     <span class="statistics-chart-edge-fade end" aria-hidden="true"></span>
