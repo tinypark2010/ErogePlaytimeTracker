@@ -2865,7 +2865,7 @@ button.primary:disabled:hover {
   --statistics-chart-side-padding: clamp(0.4rem, 2vw, 1.4rem);
   --statistics-chart-axis-width: clamp(52px, 6vw, 64px);
   position: relative;
-  width: min(100%, 940px);
+  width: min(100%, 1040px);
   margin: 0.8rem auto 0;
   padding: 0
     calc(var(--statistics-chart-side-padding) + var(--statistics-chart-axis-width) + 0.45rem);
