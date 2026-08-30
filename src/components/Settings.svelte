@@ -4,6 +4,7 @@
   import { relaunch } from '@tauri-apps/plugin-process';
   import { check } from '@tauri-apps/plugin-updater';
   import { api } from '../lib/api';
+  import { userErrorMessage } from '../lib/errors';
   import type { Settings, Theme } from '../lib/types';
   export let ontheme: (theme: Theme) => void = () => {};
   export let ondirty: (dirty: boolean) => void = () => {};
@@ -53,11 +54,11 @@
         try {
           await api.validateScreenshotHotkey(settings.screenshot_hotkey);
         } catch (e) {
-          hotkeyError = String(e);
+          hotkeyError = userErrorMessage(e, 'スクリーンショットキーを確認できませんでした。');
         }
       }
     } catch (e) {
-      error = String(e);
+      error = userErrorMessage(e, '設定を読み込めませんでした。');
     }
   });
   onDestroy(() => {
@@ -81,7 +82,7 @@
       error = '';
       hotkeyError = '';
     } catch (e) {
-      const saveError = String(e);
+      const saveError = userErrorMessage(e, '設定を保存できませんでした。');
       if (saveError.includes('キー') || saveError.includes('ホット')) {
         hotkeyError = saveError;
       } else {
@@ -125,9 +126,14 @@
       hotkeyStatus = '';
     } catch (e) {
       hotkeyStatus = '';
-      hotkeyError = String(e);
+      hotkeyError = userErrorMessage(e, 'スクリーンショットキーを確認できませんでした。');
     } finally {
-      await api.resumeScreenshotHotkey().catch((e) => (hotkeyError = String(e)));
+      await api
+        .resumeScreenshotHotkey()
+        .catch(
+          (e) =>
+            (hotkeyError = userErrorMessage(e, 'スクリーンショットキーを再登録できませんでした。')),
+        );
       checkingHotkey = false;
     }
   }
@@ -139,7 +145,7 @@
       await api.suspendScreenshotHotkey();
       recordingHotkey = true;
     } catch (e) {
-      hotkeyError = String(e);
+      hotkeyError = userErrorMessage(e, 'スクリーンショットキーを解除できませんでした。');
     }
   }
   async function clearHotkey() {
@@ -169,7 +175,7 @@
         : '現在のバージョンが最新です。';
     } catch (e) {
       updateStatus = '';
-      updateError = `更新を確認できませんでした: ${String(e)}`;
+      updateError = userErrorMessage(e, '更新を確認できませんでした。');
     } finally {
       checkingUpdate = false;
     }
@@ -179,7 +185,7 @@
     try {
       gameIsRunning ||= (await api.status()).games.length > 0;
     } catch (e) {
-      updateError = `ゲームの起動状態を確認できませんでした: ${String(e)}`;
+      updateError = userErrorMessage(e, 'ゲームの起動状態を確認できませんでした。');
       return;
     }
     if (gameIsRunning) {
@@ -207,7 +213,7 @@
       });
       await relaunch();
     } catch (e) {
-      updateError = `更新できませんでした: ${String(e)}`;
+      updateError = userErrorMessage(e, '更新できませんでした。もう一度お試しください。');
       installingUpdate = false;
     }
   }

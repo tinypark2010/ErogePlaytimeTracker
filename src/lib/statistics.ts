@@ -9,6 +9,11 @@ export interface ChartAxisTick {
   value: number;
 }
 
+export interface ChartInertiaStep {
+  scrollLeft: number;
+  velocity: number;
+}
+
 export function compactDuration(seconds: number) {
   const totalMinutes = Math.floor(Math.max(0, seconds) / 60);
   const hours = Math.floor(totalMinutes / 60);
@@ -47,4 +52,30 @@ export function nextChartZoom(current: number, maximum: number, deltaY: number, 
     Math.abs(delta) < 20 ? Math.abs(delta) * 0.015 : Math.max(0.3, Math.abs(delta) * 0.0015);
   const factor = Math.exp(-Math.sign(delta) * exponent);
   return Math.min(maximum, Math.max(1, current * factor));
+}
+
+export function chartPanScrollLeft(
+  startScrollLeft: number,
+  pointerDeltaX: number,
+  maximumScrollLeft: number,
+) {
+  return Math.min(maximumScrollLeft, Math.max(0, startScrollLeft - pointerDeltaX));
+}
+
+export function advanceChartInertia(
+  scrollLeft: number,
+  velocity: number,
+  elapsedMs: number,
+  maximumScrollLeft: number,
+): ChartInertiaStep {
+  const frameDuration = Math.min(32, Math.max(0, elapsedMs));
+  const speed = Math.abs(velocity);
+  const nextSpeed = Math.max(0, speed - 0.0035 * frameDuration);
+  const distance = Math.sign(velocity) * ((speed + nextSpeed) / 2) * frameDuration;
+  const nextScrollLeft = Math.min(maximumScrollLeft, Math.max(0, scrollLeft + distance));
+
+  if (nextSpeed === 0 || nextScrollLeft === 0 || nextScrollLeft === maximumScrollLeft) {
+    return { scrollLeft: nextScrollLeft, velocity: 0 };
+  }
+  return { scrollLeft: nextScrollLeft, velocity: Math.sign(velocity) * nextSpeed };
 }

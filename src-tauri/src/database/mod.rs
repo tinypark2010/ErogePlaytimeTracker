@@ -418,6 +418,7 @@ impl Database {
         parse_range(start, end)?;
         let mut c = self.0.lock();
         let tx = c.transaction()?;
+        validate_session_range(&tx, game, None, start, Some(end))?;
         let n = now();
         tx.execute("INSERT INTO play_sessions(game_id,launched_at,exited_at,created_at,updated_at,background_migrated) VALUES(?,?,?,?,?,1)",params![game,start,end,n,n])?;
         let id = tx.last_insert_rowid();
@@ -429,10 +430,10 @@ impl Database {
         DateTime::parse_from_rfc3339(start).context("開始日時が不正です")?;
         let mut c = self.0.lock();
         let tx = c.transaction()?;
-        let existing_end: Option<String> = tx.query_row(
-            "SELECT exited_at FROM play_sessions WHERE id=?",
+        let (game, existing_end): (i64, Option<String>) = tx.query_row(
+            "SELECT game_id,exited_at FROM play_sessions WHERE id=?",
             [id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         if existing_end.is_some() != end.is_some() {
             bail!("セッションの実行状態は手動変更できません")
@@ -440,6 +441,7 @@ impl Database {
         if let Some(end) = end {
             parse_range(start, end)?;
         }
+        validate_session_range(&tx, game, Some(id), start, end)?;
         let invalid:i64=tx.query_row("SELECT COUNT(*) FROM background_intervals WHERE play_session_id=? AND (started_at < ? OR (? IS NOT NULL AND (ended_at IS NULL OR ended_at > ?)))",params![id,start,end,end],|r|r.get(0))?;
         if invalid > 0 {
             bail!("バックグラウンド区間がSession範囲外になります")
@@ -1251,6 +1253,28 @@ fn validate_interval(
     Ok(())
 }
 
+fn validate_session_range(
+    c: &Connection,
+    game: i64,
+    exclude: Option<i64>,
+    start: &str,
+    end: Option<&str>,
+) -> Result<()> {
+    DateTime::parse_from_rfc3339(start).context("開始日時が不正です")?;
+    if let Some(end) = end {
+        parse_range(start, end)?;
+    }
+    let overlap: i64 = c.query_row(
+        "SELECT COUNT(*) FROM play_sessions WHERE game_id=? AND (? IS NULL OR id<>?) AND COALESCE(exited_at,'9999') > ? AND COALESCE(?, '9999') > launched_at",
+        params![game, exclude, exclude, start, end],
+        |row| row.get(0),
+    )?;
+    if overlap > 0 {
+        bail!("セッションが既存のセッションと重複しています")
+    }
+    Ok(())
+}
+
 fn load_ranges(c: &Connection, table: &str, session: i64) -> Result<Vec<(String, String)>> {
     let mut query = c.prepare(&format!("SELECT started_at,ended_at FROM {table} WHERE play_session_id=? AND ended_at IS NOT NULL ORDER BY started_at"))?;
     Ok(query
@@ -1390,6 +1414,49 @@ mod tests {
             d.update_session(s, "2026-01-01T00:35:00Z", Some("2026-01-01T01:00:00Z"))
                 .is_err()
         );
+    }
+    #[test]
+    fn manual_session_and_session_edit_reject_overlap() {
+        let d = Database::memory().unwrap();
+        let game_id = game(&d);
+        let first = d
+            .manual_session(game_id, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
+            .unwrap();
+        assert_eq!(
+            d.manual_session(game_id, "2026-01-01T00:30:00Z", "2026-01-01T01:30:00Z")
+                .unwrap_err()
+                .to_string(),
+            "セッションが既存のセッションと重複しています"
+        );
+
+        let second = d
+            .manual_session(game_id, "2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z")
+            .unwrap();
+        assert_eq!(
+            d.update_session(second, "2026-01-01T00:30:00Z", Some("2026-01-01T02:00:00Z"))
+                .unwrap_err()
+                .to_string(),
+            "セッションが既存のセッションと重複しています"
+        );
+        d.update_session(first, "2026-01-01T00:00:00Z", Some("2026-01-01T01:00:00Z"))
+            .unwrap();
+
+        let other_game = d
+            .create_game(
+                &CreateGameInput {
+                    title: "Other".into(),
+                    brand: None,
+                    release_date: None,
+                    thumbnail_path: None,
+                    erogamescape_id: None,
+                    source_url: None,
+                    executable_paths: vec![],
+                },
+                None,
+            )
+            .unwrap();
+        d.manual_session(other_game, "2026-01-01T00:30:00Z", "2026-01-01T01:30:00Z")
+            .unwrap();
     }
     #[test]
     fn session_update_preserves_running_state() {

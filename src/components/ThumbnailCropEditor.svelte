@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { api } from '../lib/api';
+  import { userErrorMessage } from '../lib/errors';
   import { imageSrc } from '../lib/time';
   import {
     composeCropRect,
@@ -69,7 +70,7 @@
       cropImage = await loadCropImage(imagePath);
       await resetCrop();
     } catch (e) {
-      cropError = String(e);
+      cropError = userErrorMessage(e, 'サムネイル画像を読み込めませんでした。');
     } finally {
       cropLoading = false;
     }
@@ -230,7 +231,7 @@
       }
       await ondone(savedPath);
     } catch (e) {
-      cropError = String(e);
+      cropError = userErrorMessage(e, 'サムネイル画像を保存できませんでした。');
     } finally {
       cropSaving = false;
       onbusy(false);
