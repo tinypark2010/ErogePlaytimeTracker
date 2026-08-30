@@ -86,7 +86,7 @@ a {
 
 nav {
   display: flex;
-  gap: 2rem;
+  gap: clamp(1rem, 2.5vw, 2rem);
   font-size: 0.82rem;
 }
 
@@ -115,8 +115,8 @@ footer {
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(500px, 1.1fr);
-  gap: clamp(2.5rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 1fr) minmax(460px, 1fr);
+  gap: clamp(2.5rem, 4vw, 4rem);
   align-items: center;
   padding: 7rem 0 8rem;
 }
@@ -136,8 +136,12 @@ h2 {
 
 h1 {
   margin: 0;
-  font-size: clamp(3rem, 4vw, 3.7rem);
+  font-size: clamp(2.8rem, 3.8vw, 3.4rem);
   line-height: 1.25;
+}
+
+h1 span {
+  display: block;
   white-space: nowrap;
 }
 
@@ -148,11 +152,26 @@ h1 {
   font-size: 1.03rem;
 }
 
+.hero-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1.15rem;
+  margin: 1.4rem 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  list-style: disc inside;
+}
+
+.hero-facts li::marker {
+  color: var(--accent);
+}
+
 .hero-actions {
   display: flex;
   gap: 1.5rem;
   align-items: center;
-  margin-top: 2.25rem;
+  margin-top: 1.8rem;
 }
 
 .button {
@@ -185,6 +204,65 @@ h1 {
   border: 1px solid #dfaabd;
   border-radius: 10px;
   box-shadow: 16px 18px 0 #f1bfd0;
+}
+
+.getting-started,
+.tracking,
+.faq {
+  padding: 5rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.getting-started h2,
+.tracking h2,
+.faq h2 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.tracking h2 {
+  margin-bottom: 1.5rem;
+}
+
+.section-lead {
+  max-width: 48rem;
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.setup-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(1.5rem, 4vw, 4rem);
+  margin: 2.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-steps li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.9rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.setup-steps li > span {
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.setup-steps h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.setup-steps p {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .screens {
@@ -279,16 +357,6 @@ h1 {
   box-shadow: 12px 14px 0 #f1bfd0;
 }
 
-.tracking {
-  padding: 5rem 0;
-  border-top: 1px solid var(--line);
-}
-
-.tracking h2 {
-  margin: 0 0 1.5rem;
-  font-size: 1.6rem;
-}
-
 .tracking p {
   max-width: 64rem;
   margin: 0;
@@ -297,6 +365,34 @@ h1 {
 
 .tracking p + p {
   margin-top: 0.9rem;
+}
+
+.faq-list {
+  max-width: 64rem;
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+
+.faq details {
+  border-bottom: 1px solid var(--line);
+}
+
+.faq summary {
+  padding: 1rem 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.faq summary::marker {
+  color: var(--accent-strong);
+}
+
+.faq details p {
+  max-width: 58rem;
+  margin: -0.25rem 0 1.25rem;
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .download {
@@ -338,15 +434,7 @@ footer small {
   margin-top: 2rem;
 }
 
-@media (max-width: 900px) {
-  .site-header {
-    grid-template-columns: 1fr auto;
-  }
-
-  nav {
-    display: none;
-  }
-
+@media (max-width: 1050px) {
   .hero {
     grid-template-columns: minmax(0, 1fr);
     min-height: auto;
@@ -354,6 +442,16 @@ footer small {
 
   .hero-screenshot {
     width: min(680px, calc(100% - 18px));
+  }
+}
+
+@media (max-width: 900px) {
+  .site-header {
+    grid-template-columns: 1fr auto;
+  }
+
+  nav {
+    display: none;
   }
 
   .screen-explorer {
@@ -385,13 +483,17 @@ footer small {
   }
 
   h1 {
-    font-size: clamp(2.55rem, 10vw, 3.2rem);
-    white-space: normal;
+    font-size: clamp(2.15rem, 9vw, 2.8rem);
   }
 
   .hero-actions {
     display: grid;
     gap: 1rem;
+  }
+
+  .hero-facts {
+    display: grid;
+    gap: 0.5rem;
   }
 
   .hero-screenshot {
@@ -401,6 +503,11 @@ footer small {
 
   .screens {
     padding: 5rem 0;
+  }
+
+  .setup-steps {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
   }
 
   .screens > h2 {
@@ -436,7 +543,9 @@ footer small {
     min-height: 0;
   }
 
-  .tracking {
+  .getting-started,
+  .tracking,
+  .faq {
     padding: 4rem 0;
   }
 
