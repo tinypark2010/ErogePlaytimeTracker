@@ -45,7 +45,7 @@ impl ScreenshotService {
                             log::error!("screenshot hotkey registration failed: {e:#}");
                             let _ = app.emit(
                                 "screenshot-error",
-                                format!("スクリーンショットキーを登録できません: {e}"),
+                                "スクリーンショットキーを登録できませんでした。設定を確認してください。",
                             );
                             false
                         }
@@ -103,7 +103,7 @@ impl ScreenshotService {
                         if message.message == WM_HOTKEY {
                             if let Err(e) = capture_focused(&app, &db, &tracker, &root) {
                                 log::warn!("screenshot capture skipped or failed: {e:#}");
-                                let _ = app.emit("screenshot-error", e.to_string());
+                                let _ = app.emit("screenshot-error", capture_error_message(&e));
                             }
                         } else {
                             unsafe {
@@ -140,6 +140,14 @@ impl ScreenshotService {
         receiver
             .recv_timeout(Duration::from_secs(2))?
             .map_err(anyhow::Error::msg)
+    }
+}
+
+fn capture_error_message(error: &anyhow::Error) -> &'static str {
+    if error.to_string() == "フォアグラウンドで計測中のゲームがありません" {
+        "フォアグラウンドで計測中のゲームがありません。"
+    } else {
+        "スクリーンショットを保存できませんでした。しばらくしてからもう一度お試しください。"
     }
 }
 
@@ -378,4 +386,21 @@ fn write_png(path: &Path, rgba: &[u8], width: u32, height: u32) -> anyhow::Resul
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header()?.write_image_data(rgba)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod error_message_tests {
+    use super::*;
+
+    #[test]
+    fn exposes_only_expected_capture_errors() {
+        assert_eq!(
+            capture_error_message(&anyhow::anyhow!(
+                "フォアグラウンドで計測中のゲームがありません"
+            )),
+            "フォアグラウンドで計測中のゲームがありません。"
+        );
+        let message = capture_error_message(&anyhow::anyhow!("private capture detail"));
+        assert!(!message.contains("private capture detail"));
+    }
 }

@@ -7,6 +7,7 @@
   import ThumbnailCropEditor from './ThumbnailCropEditor.svelte';
   import HistoryDataRow from './HistoryDataRow.svelte';
   import { api } from '../lib/api';
+  import { userErrorMessage } from '../lib/errors';
   import {
     validateBackgroundInterval,
     validateManualSession,
@@ -232,10 +233,14 @@
     sessionFormError = '';
   }
   async function addExe() {
-    if (newPath) {
+    if (!newPath) return;
+    try {
       await api.addExecutable(gameId, newPath);
       newPath = '';
       await load();
+      showToast('実行ファイルを登録しました');
+    } catch (e) {
+      showToast(userErrorMessage(e, '実行ファイルを登録できませんでした。'), true);
     }
   }
   async function selectExe() {
@@ -256,7 +261,7 @@
       await load();
       showToast('実行ファイルの登録を削除しました');
     } catch (e) {
-      showToast(`実行ファイルの登録を削除できませんでした: ${String(e)}`, true);
+      showToast(userErrorMessage(e, '実行ファイルの登録を削除できませんでした。'), true);
     }
   }
   function beginManualSession() {
@@ -279,9 +284,11 @@
       await api.manualSession(gameId, utc(manualStart), utc(manualEnd));
       cancelManualSession();
       await load();
-    } catch {
-      manualSessionError =
-        '手動セッションを追加できませんでした。入力内容を確認して、もう一度お試しください。';
+    } catch (e) {
+      manualSessionError = userErrorMessage(
+        e,
+        '手動セッションを追加できませんでした。入力内容を確認して、もう一度お試しください。',
+      );
     } finally {
       manualSessionSaving = false;
     }
@@ -302,9 +309,11 @@
       sessionFormDirty = false;
       cancelSessionEdit();
       await load();
-    } catch {
-      sessionFormError =
-        'セッションを保存できませんでした。入力内容を確認して、もう一度お試しください。';
+    } catch (e) {
+      sessionFormError = userErrorMessage(
+        e,
+        'セッションを保存できませんでした。入力内容を確認して、もう一度お試しください。',
+      );
     } finally {
       sessionSaving = false;
     }
@@ -398,9 +407,11 @@
       intervals = await api.intervals(interval.play_session_id);
       cancelEditInterval();
       await load();
-    } catch {
-      intervalEditError =
-        '除外区間を保存できませんでした。入力内容を確認して、もう一度お試しください。';
+    } catch (e) {
+      intervalEditError = userErrorMessage(
+        e,
+        '除外区間を保存できませんでした。入力内容を確認して、もう一度お試しください。',
+      );
     } finally {
       savingIntervalId = null;
     }
@@ -448,9 +459,11 @@
       intervals = await api.intervals(selected.id);
       cancelAddInterval();
       await load();
-    } catch {
-      newIntervalError =
-        '除外区間を追加できませんでした。入力内容を確認して、もう一度お試しください。';
+    } catch (e) {
+      newIntervalError = userErrorMessage(
+        e,
+        '除外区間を追加できませんでした。入力内容を確認して、もう一度お試しください。',
+      );
     } finally {
       intervalCreating = false;
     }
@@ -492,7 +505,7 @@
       await load();
       showToast('ゲーム情報を保存しました');
     } catch (e) {
-      showToast(`ゲーム情報を保存できませんでした: ${String(e)}`, true);
+      showToast(userErrorMessage(e, 'ゲーム情報を保存できませんでした。'), true);
     }
   }
   async function openSourceUrl() {
@@ -500,7 +513,7 @@
     try {
       await api.openExternalUrl(game.source_url);
     } catch (e) {
-      showToast(String(e), true);
+      showToast(userErrorMessage(e, 'URLを開けませんでした。'), true);
     }
   }
   async function refreshMeta() {
@@ -512,8 +525,11 @@
       await load();
       showToast('ErogameScapeからゲーム情報を更新しました');
     } catch (e) {
-      pageError = String(e);
-      showToast(`情報を更新できませんでした: ${String(e)}`, true);
+      pageError = userErrorMessage(
+        e,
+        '情報を更新できませんでした。入力内容と通信状態を確認してください。',
+      );
+      showToast(pageError, true);
     } finally {
       refreshingMeta = false;
     }
@@ -543,7 +559,7 @@
     try {
       thumbnailDraftPath = await api.importThumbnail(selected);
     } catch (e) {
-      thumbnailError = String(e);
+      thumbnailError = userErrorMessage(e, 'サムネイル画像を取り込めませんでした。');
     } finally {
       thumbnailImporting = false;
     }
@@ -559,7 +575,7 @@
       showToast('サムネイルを保存しました');
     } catch (e) {
       thumbnailDraftPath = path;
-      thumbnailError = String(e);
+      thumbnailError = userErrorMessage(e, 'サムネイル画像を保存できませんでした。');
     } finally {
       thumbnailSaving = false;
     }
@@ -577,7 +593,7 @@
     try {
       await api.launchGame(gameId);
     } catch (e) {
-      pageError = String(e);
+      pageError = userErrorMessage(e, 'ゲームを起動できませんでした。');
     }
   }
   async function updatePlayStatus(status: PlayStatus) {
@@ -587,7 +603,7 @@
       await load();
       showToast(`プレイ状況を「${playStatusLabel(status)}」に変更しました`);
     } catch (e) {
-      showToast(`プレイ状況を変更できませんでした: ${String(e)}`, true);
+      showToast(userErrorMessage(e, 'プレイ状況を変更できませんでした。'), true);
     }
   }
   async function createTimestamp() {
@@ -600,7 +616,7 @@
       await load();
       showToast(`「${name}」を記録しました`);
     } catch (e) {
-      showToast(`記録できませんでした: ${String(e)}`, true);
+      showToast(userErrorMessage(e, 'プレイ記録ポイントを追加できませんでした。'), true);
     } finally {
       creatingTimestamp = false;
     }
@@ -647,7 +663,7 @@
       cancelTimestampEdit();
       showToast('プレイ記録ポイントを変更しました');
     } catch (e) {
-      timestampEditError = `変更できませんでした: ${String(e)}`;
+      timestampEditError = userErrorMessage(e, 'プレイ記録ポイントを変更できませんでした。');
     } finally {
       savingTimestampId = null;
     }
@@ -658,7 +674,7 @@
       await load();
       showToast('プレイ記録ポイントを削除しました');
     } catch (e) {
-      showToast(`削除できませんでした: ${String(e)}`, true);
+      showToast(userErrorMessage(e, 'プレイ記録ポイントを削除できませんでした。'), true);
     }
   }
   async function deleteScreenshot(id: number) {
@@ -668,14 +684,14 @@
       await load();
       showToast('スクリーンショットを削除しました');
     } catch (e) {
-      showToast(`スクリーンショットを削除できませんでした: ${String(e)}`, true);
+      showToast(userErrorMessage(e, 'スクリーンショットを削除できませんでした。'), true);
     }
   }
   async function openScreenshotDirectory() {
     try {
       await api.openScreenshotDirectory(gameId);
     } catch (e) {
-      showToast(`保存先を開けませんでした: ${String(e)}`, true);
+      showToast(userErrorMessage(e, 'スクリーンショットの保存先を開けませんでした。'), true);
     }
   }
 </script>
