@@ -559,7 +559,7 @@ impl Database {
             params![name, marked_at, id],
         )?;
         if changed == 0 {
-            bail!("プレイ記録ポイントが見つかりません")
+            bail!("タイムスタンプが見つかりません")
         }
         Ok(())
     }
@@ -1215,10 +1215,10 @@ fn insert_executable(c: &Connection, game: i64, path: &str) -> Result<()> {
 fn validate_timestamp_name(name: &str) -> Result<&str> {
     let name = name.trim();
     if name.is_empty() {
-        bail!("プレイ記録ポイントの名称を入力してください")
+        bail!("タイムスタンプのタイトルを入力してください")
     }
     if name.chars().count() > 100 {
-        bail!("プレイ記録ポイントの名称は100文字以内にしてください")
+        bail!("タイムスタンプのタイトルは100文字以内にしてください")
     }
     Ok(name)
 }

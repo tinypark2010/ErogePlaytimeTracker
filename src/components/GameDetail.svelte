@@ -629,7 +629,7 @@
       await load();
       showToast(`「${name}」を記録しました`);
     } catch (e) {
-      showToast(userErrorMessage(e, 'プレイ記録ポイントを追加できませんでした。'), true);
+      showToast(userErrorMessage(e, 'タイムスタンプを追加できませんでした。'), true);
     } finally {
       creatingTimestamp = false;
     }
@@ -651,7 +651,7 @@
   async function saveTimestamp(point: GameTimestamp) {
     const name = editingTimestampName.trim();
     if (!name) {
-      timestampEditError = 'プレイ記録ポイントの名称を入力してください。';
+      timestampEditError = 'タイムスタンプのタイトルを入力してください。';
       return;
     }
     if (!editingTimestampTimeComplete || !editingTimestampTime) {
@@ -674,9 +674,9 @@
       );
       await load();
       cancelTimestampEdit();
-      showToast('プレイ記録ポイントを変更しました');
+      showToast('タイムスタンプを変更しました');
     } catch (e) {
-      timestampEditError = userErrorMessage(e, 'プレイ記録ポイントを変更できませんでした。');
+      timestampEditError = userErrorMessage(e, 'タイムスタンプを変更できませんでした。');
     } finally {
       savingTimestampId = null;
     }
@@ -685,9 +685,9 @@
     try {
       await api.deleteTimestamp(id);
       await load();
-      showToast('プレイ記録ポイントを削除しました');
+      showToast('タイムスタンプを削除しました');
     } catch (e) {
-      showToast(userErrorMessage(e, 'プレイ記録ポイントを削除できませんでした。'), true);
+      showToast(userErrorMessage(e, 'タイムスタンプを削除できませんでした。'), true);
     }
   }
   async function deleteScreenshot(id: number) {
@@ -879,12 +879,13 @@
       {/if}
     </section>
     <section class="panel timestamp-panel">
-      <div class="panel-heading"><h2>プレイ記録ポイント</h2></div>
+      <div class="panel-heading"><h2>タイムスタンプ</h2></div>
       <p class="hint">
         ルートクリアなどの節目を記録すると、到達までにかかったプレイ時間を確認できます。
       </p>
       <div class="row timestamp-create">
         <input
+          aria-label="タイムスタンプのタイトル"
           maxlength="100"
           bind:value={timestampName}
           placeholder="例: ○○ルートクリア"
@@ -897,42 +898,50 @@
           onclick={createTimestamp}>{creatingTimestamp ? '記録中…' : '現在時刻で記録'}</button
         >
       </div>
-      {#if !timestamps.length}<p class="timestamp-empty">まだ記録ポイントはありません。</p>{/if}
+      {#if !timestamps.length}<p class="timestamp-empty">まだタイムスタンプはありません。</p>{/if}
       <div class="timestamp-list">
         {#each timestamps as point, index}<article class="timestamp-item">
             <div class="timestamp-marker" aria-hidden="true"></div>
-            <div class="timestamp-content">
-              {#if editingTimestampId === point.id}<input
-                  class="timestamp-name-input"
-                  aria-label="プレイ記録ポイントの名称"
-                  maxlength="100"
-                  bind:value={editingTimestampName}
-                  aria-invalid={Boolean(timestampEditError)}
-                  disabled={savingTimestampId === point.id}
-                  oninput={() => (timestampEditError = '')}
-                  onkeydown={(event) => {
-                    if (event.key === 'Enter') saveTimestamp(point);
-                    if (event.key === 'Escape') cancelTimestampEdit();
-                  }}
-                />
-                <div class="timestamp-time-input">
-                  <DateTimeSelect
-                    label="記録日時"
-                    value={editingTimestampTime}
-                    disabled={savingTimestampId === point.id}
-                    invalid={Boolean(timestampEditError)}
-                    onchange={(value, complete) => {
-                      editingTimestampTime = value;
-                      editingTimestampTimeComplete = complete;
-                      timestampEditError = '';
-                    }}
-                  />
+            <div
+              class="timestamp-content"
+              class:timestamp-editing={editingTimestampId === point.id}
+            >
+              {#if editingTimestampId === point.id}<div class="timestamp-edit-fields">
+                  <label class="timestamp-title-input"
+                    ><span>タイトル</span><input
+                      class="timestamp-name-input"
+                      maxlength="100"
+                      bind:value={editingTimestampName}
+                      aria-invalid={Boolean(timestampEditError)}
+                      disabled={savingTimestampId === point.id}
+                      oninput={() => (timestampEditError = '')}
+                      onkeydown={(event) => {
+                        if (event.key === 'Enter') saveTimestamp(point);
+                        if (event.key === 'Escape') cancelTimestampEdit();
+                      }}
+                    /></label
+                  >
+                  <div class="timestamp-time-input">
+                    <DateTimeSelect
+                      label="記録日時"
+                      value={editingTimestampTime}
+                      disabled={savingTimestampId === point.id}
+                      invalid={Boolean(timestampEditError)}
+                      onchange={(value, complete) => {
+                        editingTimestampTime = value;
+                        editingTimestampTimeComplete = complete;
+                        timestampEditError = '';
+                      }}
+                    />
+                  </div>
+                  {#if timestampEditError}<p class="form-error timestamp-edit-error" role="alert">
+                      {timestampEditError}
+                    </p>{/if}
                 </div>
-                {#if timestampEditError}<p class="form-error" role="alert">
-                    {timestampEditError}
-                  </p>{/if}
-              {:else}<h3>{point.name}</h3>
-                <small>{local(point.marked_at)}</small>{/if}
+              {:else}<div class="timestamp-title">
+                  <h3>{point.name}</h3>
+                  <small>{local(point.marked_at)}</small>
+                </div>{/if}
               <div class="timestamp-times">
                 <span
                   ><small>累計プレイ時間</small><strong>{duration(point.playtime_seconds)}</strong
@@ -953,8 +962,8 @@
                 ><button disabled={savingTimestampId === point.id} onclick={cancelTimestampEdit}
                   >キャンセル</button
                 >{:else}<button onclick={() => beginTimestampEdit(point)}>編集</button><DeleteButton
-                  title="プレイ記録ポイントの削除"
-                  message={`プレイ記録ポイント「${point.name}」を削除します。元に戻せません。`}
+                  title="タイムスタンプの削除"
+                  message={`タイムスタンプ「${point.name}」を削除します。元に戻せません。`}
                   onconfirm={() => deleteTimestamp(point.id)}
                 />{/if}
             </div>
@@ -1039,7 +1048,7 @@
         <DeleteButton
           label="ゲームを削除"
           title="ゲームの削除"
-          message={`「${game.title}」のゲーム情報、すべてのプレイ履歴、記録ポイント、スクリーンショットを削除します。元に戻せません。`}
+          message={`「${game.title}」のゲーム情報、すべてのプレイ履歴、タイムスタンプ、スクリーンショットを削除します。元に戻せません。`}
           onconfirm={removeGame}
         />
       </div>
