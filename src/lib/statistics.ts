@@ -1,4 +1,4 @@
-import type { StatisticsDay } from './types';
+import type { GameTimestamp, StatisticsDay } from './types';
 
 export interface DailyTrendPoint extends StatisticsDay {
   cumulative_seconds: number;
@@ -12,6 +12,11 @@ export interface ChartAxisTick {
 export interface ChartInertiaStep {
   scrollLeft: number;
   velocity: number;
+}
+
+export interface TimestampMarkerGroup {
+  playtimeSeconds: number;
+  names: string[];
 }
 
 export function compactDuration(seconds: number) {
@@ -34,6 +39,21 @@ export function dailyTrend(days: StatisticsDay[]): DailyTrendPoint[] {
     cumulative += day.playtime_seconds;
     return { ...day, cumulative_seconds: cumulative };
   });
+}
+
+export function timestampMarkerGroups(
+  timestamps: Pick<GameTimestamp, 'name' | 'playtime_seconds'>[],
+): TimestampMarkerGroup[] {
+  const groups = new Map<number, string[]>();
+  for (const point of timestamps) {
+    const playtimeSeconds = Math.max(0, point.playtime_seconds);
+    const names = groups.get(playtimeSeconds) ?? [];
+    names.push(point.name);
+    groups.set(playtimeSeconds, names);
+  }
+  return Array.from(groups, ([playtimeSeconds, names]) => ({ playtimeSeconds, names })).sort(
+    (left, right) => right.playtimeSeconds - left.playtimeSeconds,
+  );
 }
 
 export function chartAxisTicks(maximumSeconds: number): ChartAxisTick[] {

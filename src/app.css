@@ -2713,49 +2713,74 @@ button.primary:disabled:hover {
 }
 
 /* Statistics dashboard */
-.statistics-page {
+.statistics-page,
+.game-statistics-panel {
   --statistics-accent: #a88aff;
   --statistics-accent-strong: #8d69ed;
   --statistics-accent-soft: #a88aff20;
   --statistics-cumulative: #62cda0;
+  --statistics-timestamp: #efb15f;
   --statistics-card: #1b1922;
   --statistics-card-raised: #211e2a;
   --statistics-border: #302d39;
   --statistics-muted: #aaa3b4;
   --statistics-page-background: #111018;
 }
-:root[data-theme='light'] .statistics-page {
+:root[data-theme='light'] .statistics-page,
+:root[data-theme='light'] .game-statistics-panel {
   --statistics-accent: #7654cc;
   --statistics-accent-strong: #6442bc;
   --statistics-accent-soft: #7654cc18;
   --statistics-cumulative: #26835c;
+  --statistics-timestamp: #a66213;
   --statistics-card: #fff;
   --statistics-card-raised: #f8f6fb;
   --statistics-border: #d9d5df;
   --statistics-muted: #706978;
   --statistics-page-background: #f7f6fa;
 }
-:root[data-theme='pink'] .statistics-page {
+:root[data-theme='pink'] .statistics-page,
+:root[data-theme='pink'] .game-statistics-panel {
   --statistics-accent: #ca5c8a;
   --statistics-accent-strong: #b94776;
   --statistics-accent-soft: #ca5c8a18;
   --statistics-cumulative: #a36c20;
+  --statistics-timestamp: #8161b6;
   --statistics-card: #fffafd;
   --statistics-card-raised: #fff2f7;
   --statistics-border: #edc9d8;
   --statistics-muted: #805368;
   --statistics-page-background: #fff4f8;
 }
-:root[data-theme='blue'] .statistics-page {
+:root[data-theme='blue'] .statistics-page,
+:root[data-theme='blue'] .game-statistics-panel {
   --statistics-accent: #4d8fc8;
   --statistics-accent-strong: #397db7;
   --statistics-accent-soft: #4d8fc818;
   --statistics-cumulative: #267c69;
+  --statistics-timestamp: #a55d1d;
   --statistics-card: #fbfdff;
   --statistics-card-raised: #f0f7fe;
   --statistics-border: #c7d9ec;
   --statistics-muted: #526c85;
   --statistics-page-background: #f1f7ff;
+}
+.game-statistics-panel {
+  --statistics-page-background: var(--statistics-card);
+}
+.game-statistics-panel .panel-heading small {
+  color: var(--statistics-muted);
+  font-variant-numeric: tabular-nums;
+}
+.game-statistics-panel .statistics-combined-chart {
+  margin-top: 1rem;
+}
+.game-statistics-empty,
+.game-statistics-error {
+  margin: 1rem 0 0;
+}
+.game-statistics-empty {
+  color: var(--statistics-muted);
 }
 .statistics-section-heading {
   display: flex;
@@ -3083,6 +3108,11 @@ button.primary:disabled:hover {
   stroke-linejoin: round;
   stroke-width: 2.5;
 }
+.statistics-chart-single-point {
+  fill: var(--statistics-card-raised);
+  stroke: var(--statistics-cumulative);
+  stroke-width: 2.5;
+}
 .statistics-chart-cursor {
   stroke: var(--statistics-muted);
   stroke-dasharray: 3 3;
@@ -3102,6 +3132,20 @@ button.primary:disabled:hover {
 .statistics-chart-label {
   fill: var(--statistics-muted);
   font-size: 12px;
+}
+.statistics-chart-timestamp line {
+  stroke: var(--statistics-timestamp);
+  stroke-dasharray: 7 5;
+  stroke-width: 1.25;
+}
+.statistics-chart-timestamp text {
+  fill: var(--statistics-timestamp);
+  font-size: 11px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: var(--statistics-card);
+  stroke-linejoin: round;
+  stroke-width: 3px;
 }
 .statistics-chart-tooltip {
   position: absolute;

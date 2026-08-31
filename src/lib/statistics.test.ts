@@ -6,6 +6,7 @@ import {
   compactDuration,
   dailyTrend,
   nextChartZoom,
+  timestampMarkerGroups,
 } from './statistics';
 import type { StatisticsDay } from './types';
 
@@ -56,6 +57,21 @@ describe('statistics helpers', () => {
       { ratio: 1, value: 10_800 },
     ]);
     expect(chartAxisTicks(0).map((tick) => tick.value)).toEqual([0, 20, 40, 60]);
+  });
+
+  it('groups timestamp markers at the same cumulative playtime and sorts higher lines first', () => {
+    expect(
+      timestampMarkerGroups([
+        { name: '開始', playtime_seconds: 0 },
+        { name: '共通ルート', playtime_seconds: 3_600 },
+        { name: '分岐メモ', playtime_seconds: 3_600 },
+        { name: 'クリア', playtime_seconds: 10_800 },
+      ]),
+    ).toEqual([
+      { playtimeSeconds: 10_800, names: ['クリア'] },
+      { playtimeSeconds: 3_600, names: ['共通ルート', '分岐メモ'] },
+      { playtimeSeconds: 0, names: ['開始'] },
+    ]);
   });
 
   it('zooms the chart in when scrolling up and leaves minimum zoom unchanged', () => {

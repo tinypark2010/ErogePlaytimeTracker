@@ -651,17 +651,65 @@ impl Database {
         Ok(sessions.len())
     }
     pub fn statistics(&self, input: &StatisticsPeriodInput) -> Result<StatisticsReport> {
+        self.statistics_for(input, None)
+    }
+    pub fn game_statistics(&self, game_id: i64) -> Result<StatisticsReport> {
+        let report = self.statistics_for(
+            &StatisticsPeriodInput {
+                kind: "all".into(),
+                year: None,
+                month: None,
+            },
+            Some(game_id),
+        )?;
+        Ok(trim_statistics_to_active_range(report))
+    }
+    fn statistics_for(
+        &self,
+        input: &StatisticsPeriodInput,
+        game_id: Option<i64>,
+    ) -> Result<StatisticsReport> {
         let snapshot = Utc::now();
+        let snapshot_text = snapshot.to_rfc3339();
         let connection = self.0.lock();
+        if let Some(game_id) = game_id {
+            let game_exists: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM games WHERE id=?)",
+                params![game_id],
+                |row| row.get(0),
+            )?;
+            if !game_exists {
+                bail!("ゲームが見つかりません")
+            }
+        }
         let earliest_session: Option<String> = connection
             .query_row(
-                "SELECT launched_at FROM play_sessions ORDER BY CAST(strftime('%s',launched_at) AS INTEGER),id LIMIT 1",
-                [],
+                "SELECT launched_at FROM play_sessions
+                 WHERE (?1 IS NULL OR game_id=?1)
+                 ORDER BY CAST(strftime('%s',launched_at) AS INTEGER),id LIMIT 1",
+                params![game_id],
                 |row| row.get(0),
             )
             .optional()?;
-        let (period, days, available_years) =
-            statistics_period(input, snapshot, earliest_session.as_deref())?;
+        let latest_session: Option<String> = if game_id.is_some() {
+            connection
+                .query_row(
+                    "SELECT COALESCE(exited_at,?2) FROM play_sessions
+                     WHERE game_id=?1
+                     ORDER BY CAST(strftime('%s',COALESCE(exited_at,?2)) AS INTEGER) DESC,id DESC LIMIT 1",
+                    params![game_id, snapshot_text],
+                    |row| row.get(0),
+                )
+                .optional()?
+        } else {
+            None
+        };
+        let (period, days, available_years) = statistics_period(
+            input,
+            snapshot,
+            earliest_session.as_deref(),
+            latest_session.as_deref(),
+        )?;
         let range_start = days
             .first()
             .map(|day| day.start)
@@ -670,7 +718,6 @@ impl Database {
             .last()
             .map(|day| day.end)
             .context("統計期間の終了日を決定できません")?;
-        let snapshot_text = snapshot.to_rfc3339();
         let mut query = connection.prepare(
             "SELECT s.id,s.game_id,g.title,br.name,g.thumbnail_path,s.launched_at,s.exited_at,s.needs_review,b.started_at,b.ended_at
              FROM play_sessions s
@@ -679,9 +726,10 @@ impl Database {
              LEFT JOIN background_intervals b ON b.play_session_id=s.id
              WHERE CAST(strftime('%s',s.launched_at) AS INTEGER) < ?
                AND CAST(strftime('%s',COALESCE(s.exited_at,?)) AS INTEGER) > ?
+               AND (?4 IS NULL OR s.game_id=?4)
              ORDER BY CAST(strftime('%s',s.launched_at) AS INTEGER),s.id,CAST(strftime('%s',b.started_at) AS INTEGER)",
         )?;
-        let mut rows = query.query(params![range_end, snapshot_text, range_start])?;
+        let mut rows = query.query(params![range_end, snapshot_text, range_start, game_id])?;
         let mut sessions: Vec<RawStatisticsSession> = Vec::new();
         while let Some(row) = rows.next()? {
             let session_id: i64 = row.get(0)?;
@@ -860,6 +908,7 @@ fn statistics_period(
     input: &StatisticsPeriodInput,
     snapshot: DateTime<Utc>,
     earliest_session: Option<&str>,
+    latest_session: Option<&str>,
 ) -> Result<(StatisticsPeriod, Vec<StatisticsDayBoundary>, Vec<i32>)> {
     let today = snapshot.with_timezone(&Local).date_naive();
     let earliest_date = earliest_session
@@ -871,6 +920,16 @@ fn statistics_period(
         .transpose()?
         .unwrap_or(today)
         .min(today);
+    let latest_date = latest_session
+        .map(|value| {
+            DateTime::parse_from_rfc3339(value)
+                .context("最後のセッション日時が不正です")
+                .map(|value| value.with_timezone(&Local).date_naive())
+        })
+        .transpose()?
+        .unwrap_or(today)
+        .min(today)
+        .max(earliest_date);
     let available_years = (earliest_date.year()..=today.year()).rev().collect();
     let (start_date, last_date, year, month) = match input.kind.as_str() {
         "month" => {
@@ -904,7 +963,7 @@ fn statistics_period(
                 None,
             )
         }
-        "all" => (earliest_date, today, None, None),
+        "all" => (earliest_date, latest_date, None, None),
         _ => bail!("統計期間の種類が不正です"),
     };
     let mut days = Vec::new();
@@ -1140,6 +1199,25 @@ fn aggregate_statistics(
         games,
         available_years,
     }
+}
+
+fn trim_statistics_to_active_range(mut report: StatisticsReport) -> StatisticsReport {
+    let Some(first) = report.days.iter().position(|day| day.playtime_seconds > 0) else {
+        report.days.clear();
+        report.summary.average_per_day_seconds = 0;
+        return report;
+    };
+    let last = report
+        .days
+        .iter()
+        .rposition(|day| day.playtime_seconds > 0)
+        .unwrap_or(first);
+    report.days = report.days.drain(first..=last).collect();
+    report.period.start_date = report.days[0].date.clone();
+    report.period.end_date = report.days[report.days.len() - 1].date.clone();
+    report.summary.average_per_day_seconds =
+        report.summary.total_playtime_seconds / report.days.len() as i64;
+    report
 }
 
 const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
@@ -1835,6 +1913,69 @@ mod tests {
                 .sum::<i64>(),
             2_700
         );
+    }
+    #[test]
+    fn game_statistics_filters_the_game_and_trims_to_played_days() {
+        let database = Database::memory().unwrap();
+        let game_id = game(&database);
+        let background_only_before = database
+            .manual_session(game_id, "2026-01-08T12:00:00Z", "2026-01-08T13:00:00Z")
+            .unwrap();
+        database
+            .create_interval(
+                background_only_before,
+                "2026-01-08T12:00:00Z",
+                "2026-01-08T13:00:00Z",
+            )
+            .unwrap();
+        let first_session = database
+            .manual_session(game_id, "2026-01-10T12:00:00Z", "2026-01-10T13:00:00Z")
+            .unwrap();
+        database
+            .create_interval(
+                first_session,
+                "2026-01-10T12:15:00Z",
+                "2026-01-10T12:30:00Z",
+            )
+            .unwrap();
+        let background_only_session = database
+            .manual_session(game_id, "2026-01-12T12:00:00Z", "2026-01-12T13:00:00Z")
+            .unwrap();
+        database
+            .create_interval(
+                background_only_session,
+                "2026-01-12T12:00:00Z",
+                "2026-01-12T13:00:00Z",
+            )
+            .unwrap();
+        let other_game = database
+            .create_game(
+                &CreateGameInput {
+                    title: "Other".into(),
+                    brand: None,
+                    release_date: None,
+                    thumbnail_path: None,
+                    erogamescape_id: None,
+                    source_url: None,
+                    executable_paths: vec![r#"C:\Other\other.exe"#.into()],
+                },
+                None,
+            )
+            .unwrap();
+        database
+            .manual_session(other_game, "2026-01-11T12:00:00Z", "2026-01-11T14:00:00Z")
+            .unwrap();
+
+        let report = database.game_statistics(game_id).unwrap();
+
+        assert_eq!(report.period.start_date, "2026-01-10");
+        assert_eq!(report.period.end_date, "2026-01-10");
+        assert_eq!(report.days.len(), 1);
+        assert_eq!(report.days[0].playtime_seconds, 2_700);
+        assert_eq!(report.summary.total_playtime_seconds, 2_700);
+        assert_eq!(report.summary.session_count, 1);
+        assert_eq!(report.games.len(), 1);
+        assert_eq!(report.games[0].game_id, game_id);
     }
     #[test]
     fn statistics_reject_future_periods() {

@@ -6,8 +6,10 @@
   import DeleteButton from './DeleteButton.svelte';
   import ThumbnailCropEditor from './ThumbnailCropEditor.svelte';
   import HistoryDataRow from './HistoryDataRow.svelte';
+  import PlaytimeTrend from './PlaytimeTrend.svelte';
   import { api } from '../lib/api';
   import { userErrorMessage } from '../lib/errors';
+  import { formatDateKey } from '../lib/statistics';
   import {
     validateBackgroundInterval,
     validateManualSession,
@@ -30,6 +32,8 @@
     GameScreenshot,
     PlayStatus,
     Session,
+    StatisticsReport,
+    TrackingStatus,
   } from '../lib/types';
   export let gameId: number;
   export let onback: () => void;
@@ -37,10 +41,13 @@
     sessions: Session[] = [],
     timestamps: GameTimestamp[] = [],
     screenshots: GameScreenshot[] = [],
+    gameStatistics: StatisticsReport | null = null,
     selectedScreenshot: GameScreenshot | null = null,
     selected: Session | null = null,
     intervals: BackgroundInterval[] = [],
     pageError = '',
+    gameStatisticsError = '',
+    gameStatisticsLoading = true,
     newPath = '',
     manualSessionOpen = false,
     manualStart = '',
@@ -80,6 +87,8 @@
     intervalEditEnd = '',
     intervalEditError = '',
     savingIntervalId: number | null = null;
+  let gameStatisticsRequestSequence = 0;
+  let trackingStateKey = '';
   let thumbnailEditorOpen = false,
     thumbnailDraftPath: string | null = null,
     thumbnailOriginalPath: string | null = null,
@@ -113,7 +122,23 @@
     editingIntervalId === null
       ? null
       : (intervals.find((interval) => interval.id === editingIntervalId) ?? null);
-  async function load() {
+  async function loadGameStatistics() {
+    const sequence = ++gameStatisticsRequestSequence;
+    gameStatisticsLoading = true;
+    gameStatisticsError = '';
+    try {
+      const next = await api.gameStatistics(gameId);
+      if (sequence === gameStatisticsRequestSequence) gameStatistics = next;
+    } catch (cause) {
+      if (sequence === gameStatisticsRequestSequence) {
+        gameStatisticsError = userErrorMessage(cause, 'プレイ時間の推移を読み込めませんでした。');
+      }
+    } finally {
+      if (sequence === gameStatisticsRequestSequence) gameStatisticsLoading = false;
+    }
+  }
+  async function load(refreshStatistics = false) {
+    if (refreshStatistics) void loadGameStatistics();
     try {
       const [nextGame, nextSessions, nextTimestamps, nextScreenshots] = await Promise.all([
         api.getGame(gameId),
@@ -144,11 +169,17 @@
       pageError = 'ゲーム情報を読み込めませんでした。しばらくしてからもう一度お試しください。';
     }
   }
-  load();
+  load(true);
   onMount(() => {
     let unlisten = () => {};
-    const refreshIntervals = () => {
-      load();
+    const refreshIntervals = (status: TrackingStatus) => {
+      const trackingGame = status.games.find((entry) => entry.game_id === gameId);
+      const nextTrackingStateKey = trackingGame
+        ? `${trackingGame.session_id}:${trackingGame.phase}`
+        : '';
+      const refreshStatistics = nextTrackingStateKey !== trackingStateKey;
+      trackingStateKey = nextTrackingStateKey;
+      load(refreshStatistics);
       const selectedId = selected?.id;
       if (selectedId) {
         api.intervals(selectedId).then((value) => {
@@ -156,7 +187,9 @@
         });
       }
     };
-    listen('tracking-status', refreshIntervals).then((fn) => (unlisten = fn));
+    listen<TrackingStatus>('tracking-status', (event) => refreshIntervals(event.payload)).then(
+      (fn) => (unlisten = fn),
+    );
     let unlistenScreenshot = () => {};
     listen<number>('screenshot-captured', (event) => {
       if (event.payload === gameId) {
@@ -173,11 +206,15 @@
       nowMs = Date.now();
       load();
     }, 1000);
+    const statisticsTimer = setInterval(() => {
+      if (trackingStateKey) loadGameStatistics();
+    }, 30_000);
     return () => {
       unlisten();
       unlistenScreenshot();
       unlistenScreenshotError();
       clearInterval(timer);
+      clearInterval(statisticsTimer);
       if (toastTimer) clearTimeout(toastTimer);
     };
   });
@@ -237,7 +274,7 @@
     try {
       await api.addExecutable(gameId, newPath);
       newPath = '';
-      await load();
+      await load(true);
       showToast('実行ファイルを登録しました');
     } catch (e) {
       showToast(userErrorMessage(e, '実行ファイルを登録できませんでした。'), true);
@@ -258,7 +295,7 @@
   async function removeExe(id: number) {
     try {
       await api.removeExecutable(id);
-      await load();
+      await load(true);
       showToast('実行ファイルの登録を削除しました');
     } catch (e) {
       showToast(userErrorMessage(e, '実行ファイルの登録を削除できませんでした。'), true);
@@ -283,7 +320,7 @@
     try {
       await api.manualSession(gameId, utc(manualStart), utc(manualEnd));
       cancelManualSession();
-      await load();
+      await load(true);
     } catch (e) {
       manualSessionError = userErrorMessage(
         e,
@@ -314,7 +351,7 @@
       );
       sessionFormDirty = false;
       cancelSessionEdit();
-      await load();
+      await load(true);
     } catch (e) {
       sessionFormError = userErrorMessage(
         e,
@@ -331,7 +368,7 @@
     try {
       await api.deleteSession(sessionId);
       closeSessionEditor();
-      await load();
+      await load(true);
     } catch {
       sessionActionError = 'セッションを削除できませんでした。もう一度お試しください。';
     }
@@ -342,7 +379,7 @@
     sessionActionError = '';
     try {
       await api.confirmSessionReview(selected.id);
-      await load();
+      await load(true);
       showToast('セッションを確認済みにしました');
     } catch {
       sessionActionError = '要確認を解除できませんでした。もう一度お試しください。';
@@ -356,7 +393,7 @@
     try {
       await api.deleteAllSessions(gameId);
       closeSessionEditor();
-      await load();
+      await load(true);
     } catch {
       pageError =
         'すべてのセッションを削除できませんでした。しばらくしてからもう一度お試しください。';
@@ -419,7 +456,7 @@
       );
       intervals = await api.intervals(interval.play_session_id);
       cancelEditInterval();
-      await load();
+      await load(true);
     } catch (e) {
       intervalEditError = userErrorMessage(
         e,
@@ -438,7 +475,7 @@
       await api.deleteInterval(interval.id);
       intervals = await api.intervals(interval.play_session_id);
       cancelEditInterval();
-      await load();
+      await load(true);
     } catch {
       intervalEditError = '除外区間を削除できませんでした。もう一度お試しください。';
     } finally {
@@ -471,7 +508,7 @@
       await api.createInterval(selected.id, utc(newIntervalStart), utc(newIntervalEnd));
       intervals = await api.intervals(selected.id);
       cancelAddInterval();
-      await load();
+      await load(true);
     } catch (e) {
       newIntervalError = userErrorMessage(
         e,
@@ -515,7 +552,7 @@
         source_url: editSourceUrl.trim() || undefined,
       });
       editingGame = false;
-      await load();
+      await load(true);
       showToast('ゲーム情報を保存しました');
     } catch (e) {
       showToast(userErrorMessage(e, 'ゲーム情報を保存できませんでした。'), true);
@@ -535,7 +572,7 @@
     pageError = '';
     try {
       await api.refreshMetadata(gameId);
-      await load();
+      await load(true);
       showToast('ErogameScapeからゲーム情報を更新しました');
     } catch (e) {
       pageError = userErrorMessage(
@@ -584,7 +621,7 @@
     try {
       await api.updateGameThumbnail(game.id, path);
       thumbnailEditorOpen = false;
-      await load();
+      await load(true);
       showToast('サムネイルを保存しました');
     } catch (e) {
       thumbnailDraftPath = path;
@@ -613,7 +650,7 @@
     if (!game || game.play_status === status) return;
     try {
       await api.updateGamePlayStatus(game.id, status);
-      await load();
+      await load(true);
       showToast(`プレイ状況を「${playStatusLabel(status)}」に変更しました`);
     } catch (e) {
       showToast(userErrorMessage(e, 'プレイ状況を変更できませんでした。'), true);
@@ -626,7 +663,7 @@
     try {
       await api.createTimestamp(gameId, name);
       timestampName = '';
-      await load();
+      await load(true);
       showToast(`「${name}」を記録しました`);
     } catch (e) {
       showToast(userErrorMessage(e, 'タイムスタンプを追加できませんでした。'), true);
@@ -672,7 +709,7 @@
         name,
         timeChanged ? utc(editingTimestampTime) : point.marked_at,
       );
-      await load();
+      await load(true);
       cancelTimestampEdit();
       showToast('タイムスタンプを変更しました');
     } catch (e) {
@@ -684,7 +721,7 @@
   async function deleteTimestamp(id: number) {
     try {
       await api.deleteTimestamp(id);
-      await load();
+      await load(true);
       showToast('タイムスタンプを削除しました');
     } catch (e) {
       showToast(userErrorMessage(e, 'タイムスタンプを削除できませんでした。'), true);
@@ -694,7 +731,7 @@
     try {
       await api.deleteScreenshot(id);
       if (selectedScreenshot?.id === id) selectedScreenshot = null;
-      await load();
+      await load(true);
       showToast('スクリーンショットを削除しました');
     } catch (e) {
       showToast(userErrorMessage(e, 'スクリーンショットを削除できませんでした。'), true);
@@ -842,6 +879,33 @@
           ><button onclick={addExe}>追加</button>
         </div>
       </div>
+    </section>
+    <section class="panel game-statistics-panel">
+      <div class="panel-heading">
+        <h2>プレイ時間の推移</h2>
+        {#if gameStatistics?.days.length}<small
+            >{formatDateKey(gameStatistics.period.start_date)}〜{formatDateKey(
+              gameStatistics.period.end_date,
+            )}</small
+          >{/if}
+      </div>
+      {#if gameStatisticsError}<p class="error game-statistics-error">
+          {gameStatisticsError}
+        </p>{/if}
+      {#if gameStatistics?.days.length}
+        <PlaytimeTrend
+          days={gameStatistics.days}
+          kind="all"
+          {timestamps}
+          expanded
+          fixedRange
+          showGameBreakdown={false}
+        />
+      {:else if gameStatisticsLoading}
+        <p class="game-statistics-empty">プレイ時間を集計しています…</p>
+      {:else if !gameStatisticsError}
+        <p class="game-statistics-empty">まだプレイ記録がありません。</p>
+      {/if}
     </section>
     <section class="panel timestamp-panel">
       <div class="panel-heading"><h2>タイムスタンプ</h2></div>
