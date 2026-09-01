@@ -31,6 +31,7 @@
     GameTimestamp,
     GameScreenshot,
     PlayStatus,
+    ScreenshotOcrRegion,
     Session,
     StatisticsReport,
     TrackingStatus,
@@ -102,6 +103,20 @@
     editingTimestampTime = '',
     editingTimestampTimeComplete = true,
     timestampEditError = '';
+  let screenshotOcrAttempted = false,
+    screenshotOcrLoading = false,
+    screenshotOcrText = '',
+    screenshotOcrError = '',
+    screenshotOcrRequestId = 0;
+  let screenshotOcrRegion: ScreenshotOcrRegion | null = null;
+  let screenshotSelectionDraft: {
+    pointerId: number;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null = null;
+  let visibleScreenshotOcrRegion: ScreenshotOcrRegion | null;
   const pageSizeOptions = [10, 25, 50];
   let screenshotPage = 1,
     screenshotPageSize = 10,
@@ -122,6 +137,14 @@
     editingIntervalId === null
       ? null
       : (intervals.find((interval) => interval.id === editingIntervalId) ?? null);
+  $: visibleScreenshotOcrRegion = screenshotSelectionDraft
+    ? regionFromPoints(
+        screenshotSelectionDraft.startX,
+        screenshotSelectionDraft.startY,
+        screenshotSelectionDraft.currentX,
+        screenshotSelectionDraft.currentY,
+      )
+    : screenshotOcrRegion;
   async function loadGameStatistics() {
     const sequence = ++gameStatisticsRequestSequence;
     gameStatisticsLoading = true;
@@ -730,7 +753,7 @@
   async function deleteScreenshot(id: number) {
     try {
       await api.deleteScreenshot(id);
-      if (selectedScreenshot?.id === id) selectedScreenshot = null;
+      if (selectedScreenshot?.id === id) closeScreenshotViewer();
       await load(true);
       showToast('スクリーンショットを削除しました');
     } catch (e) {
@@ -742,6 +765,124 @@
       await api.openScreenshotDirectory(gameId);
     } catch (e) {
       showToast(userErrorMessage(e, 'スクリーンショットの保存先を開けませんでした。'), true);
+    }
+  }
+  function resetScreenshotOcrResult() {
+    screenshotOcrRequestId += 1;
+    screenshotOcrAttempted = false;
+    screenshotOcrLoading = false;
+    screenshotOcrText = '';
+    screenshotOcrError = '';
+  }
+  function resetScreenshotOcr() {
+    resetScreenshotOcrResult();
+    screenshotOcrRegion = null;
+    screenshotSelectionDraft = null;
+  }
+  function regionFromPoints(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+  ): ScreenshotOcrRegion {
+    return {
+      x: Math.min(startX, endX),
+      y: Math.min(startY, endY),
+      width: Math.abs(endX - startX),
+      height: Math.abs(endY - startY),
+    };
+  }
+  function screenshotPoint(event: PointerEvent) {
+    const image = event.currentTarget as HTMLImageElement;
+    const bounds = image.getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+    };
+  }
+  function beginScreenshotSelection(event: PointerEvent) {
+    if (event.button !== 0 || screenshotOcrLoading) return;
+    const point = screenshotPoint(event);
+    (event.currentTarget as HTMLImageElement).setPointerCapture(event.pointerId);
+    screenshotSelectionDraft = {
+      pointerId: event.pointerId,
+      startX: point.x,
+      startY: point.y,
+      currentX: point.x,
+      currentY: point.y,
+    };
+  }
+  function moveScreenshotSelection(event: PointerEvent) {
+    if (screenshotSelectionDraft?.pointerId !== event.pointerId) return;
+    const point = screenshotPoint(event);
+    screenshotSelectionDraft = {
+      ...screenshotSelectionDraft,
+      currentX: point.x,
+      currentY: point.y,
+    };
+  }
+  function finishScreenshotSelection(event: PointerEvent) {
+    if (screenshotSelectionDraft?.pointerId !== event.pointerId) return;
+    const image = event.currentTarget as HTMLImageElement;
+    const point = screenshotPoint(event);
+    const region = regionFromPoints(
+      screenshotSelectionDraft.startX,
+      screenshotSelectionDraft.startY,
+      point.x,
+      point.y,
+    );
+    if (image.hasPointerCapture(event.pointerId)) image.releasePointerCapture(event.pointerId);
+    screenshotSelectionDraft = null;
+    screenshotOcrRegion = region.width >= 0.005 && region.height >= 0.005 ? region : null;
+    resetScreenshotOcrResult();
+  }
+  function cancelScreenshotSelection(event: PointerEvent) {
+    if (screenshotSelectionDraft?.pointerId !== event.pointerId) return;
+    const image = event.currentTarget as HTMLImageElement;
+    if (image.hasPointerCapture(event.pointerId)) image.releasePointerCapture(event.pointerId);
+    screenshotSelectionDraft = null;
+  }
+  function clearScreenshotSelection() {
+    if (screenshotOcrLoading) return;
+    screenshotOcrRegion = null;
+    screenshotSelectionDraft = null;
+    resetScreenshotOcrResult();
+  }
+  function openScreenshotViewer(screenshot: GameScreenshot) {
+    resetScreenshotOcr();
+    selectedScreenshot = screenshot;
+  }
+  function closeScreenshotViewer() {
+    selectedScreenshot = null;
+    resetScreenshotOcr();
+  }
+  async function recognizeScreenshotText() {
+    const screenshotId = selectedScreenshot?.id;
+    if (screenshotId === undefined || screenshotOcrLoading) return;
+    const region = screenshotOcrRegion ? { ...screenshotOcrRegion } : null;
+    const requestId = ++screenshotOcrRequestId;
+    screenshotOcrAttempted = true;
+    screenshotOcrLoading = true;
+    screenshotOcrText = '';
+    screenshotOcrError = '';
+    try {
+      const result = await api.recognizeScreenshotText(screenshotId, region);
+      if (requestId !== screenshotOcrRequestId || selectedScreenshot?.id !== screenshotId) return;
+      screenshotOcrText = result.text;
+    } catch (e) {
+      if (requestId !== screenshotOcrRequestId || selectedScreenshot?.id !== screenshotId) return;
+      screenshotOcrError = userErrorMessage(e, '画像からテキストを文字起こしできませんでした。');
+    } finally {
+      if (requestId === screenshotOcrRequestId) screenshotOcrLoading = false;
+    }
+  }
+  async function copyScreenshotOcrText() {
+    if (!screenshotOcrText) return;
+    try {
+      await navigator.clipboard.writeText(screenshotOcrText);
+      showToast('文字起こし結果をコピーしました');
+    } catch {
+      showToast('コピーできませんでした。テキスト欄から手動でコピーしてください。', true);
     }
   }
 </script>
@@ -1055,7 +1196,7 @@
         <div class="screenshot-grid">
           {#each pagedScreenshots as shot}
             <article class="screenshot-card">
-              <button class="screenshot-preview" onclick={() => (selectedScreenshot = shot)}>
+              <button class="screenshot-preview" onclick={() => openScreenshotViewer(shot)}>
                 <img
                   src={imageSrc(shot.path)}
                   alt={`${local(shot.captured_at)}のスクリーンショット`}
@@ -1497,23 +1638,96 @@
 {#if selectedScreenshot}<div
     class="modal screenshot-modal"
     role="presentation"
-    onclick={() => (selectedScreenshot = null)}
+    onclick={closeScreenshotViewer}
   >
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <section class="screenshot-viewer" onclick={(event) => event.stopPropagation()}>
-      <button class="close" aria-label="閉じる" onclick={() => (selectedScreenshot = null)}
-        >×</button
-      >
-      <img src={imageSrc(selectedScreenshot.path)} alt="スクリーンショット拡大表示" />
+      {#if !screenshotOcrAttempted}<button
+          class="close"
+          aria-label="閉じる"
+          onclick={closeScreenshotViewer}>×</button
+        >{/if}
+      <div class:has-ocr={screenshotOcrAttempted} class="screenshot-viewer-content">
+        <div class="screenshot-image-stage">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="screenshot-selection-surface">
+            <img
+              src={imageSrc(selectedScreenshot.path)}
+              alt="スクリーンショット拡大表示"
+              draggable="false"
+              onpointerdown={beginScreenshotSelection}
+              onpointermove={moveScreenshotSelection}
+              onpointerup={finishScreenshotSelection}
+              onpointercancel={cancelScreenshotSelection}
+            />
+            {#if visibleScreenshotOcrRegion}<div
+                class="screenshot-selection-box"
+                style:left={`${visibleScreenshotOcrRegion.x * 100}%`}
+                style:top={`${visibleScreenshotOcrRegion.y * 100}%`}
+                style:width={`${visibleScreenshotOcrRegion.width * 100}%`}
+                style:height={`${visibleScreenshotOcrRegion.height * 100}%`}
+              ></div>{/if}
+          </div>
+          <p class="screenshot-selection-hint">
+            画像上をドラッグすると文字起こしの範囲を選択できます
+          </p>
+        </div>
+        {#if screenshotOcrAttempted}<aside class="screenshot-ocr-panel" aria-live="polite">
+            <header class="screenshot-ocr-header">
+              <div>
+                <h3>文字起こし</h3>
+                <small>PaddleOCR・端末内処理</small>
+              </div>
+              <button
+                type="button"
+                class="screenshot-ocr-close"
+                aria-label="閉じる"
+                onclick={closeScreenshotViewer}>×</button
+              >
+            </header>
+            {#if screenshotOcrLoading}
+              <p class="screenshot-ocr-status" role="status">画像内のテキストを認識しています…</p>
+            {:else if screenshotOcrError}
+              <p class="form-error" role="alert">{screenshotOcrError}</p>
+            {:else if screenshotOcrText}
+              <textarea readonly aria-label="文字起こし結果" value={screenshotOcrText}></textarea>
+              <div class="screenshot-ocr-actions">
+                <button type="button" class="primary" onclick={copyScreenshotOcrText}
+                  >結果をコピー</button
+                >
+              </div>
+            {:else}
+              <p class="screenshot-ocr-status">画像内に日本語のテキストを検出できませんでした。</p>
+            {/if}
+          </aside>{/if}
+      </div>
       <footer>
         <span
           >{local(selectedScreenshot.captured_at)} ・ {selectedScreenshot.width}×{selectedScreenshot.height}</span
         >
-        <DeleteButton
-          title="スクリーンショットの削除"
-          message={`${local(selectedScreenshot.captured_at)} のスクリーンショットを削除します。画像ファイルも削除され、元に戻せません。`}
-          onconfirm={() => deleteScreenshot(selectedScreenshot!.id)}
-        />
+        <div class="screenshot-footer-actions">
+          {#if screenshotOcrRegion}<button
+              type="button"
+              disabled={screenshotOcrLoading}
+              onclick={clearScreenshotSelection}>選択解除</button
+            >{/if}
+          <button type="button" disabled={screenshotOcrLoading} onclick={recognizeScreenshotText}
+            >{screenshotOcrLoading
+              ? '文字起こし中…'
+              : screenshotOcrAttempted
+                ? screenshotOcrRegion
+                  ? '選択範囲をもう一度文字に起こす'
+                  : '画像全体をもう一度文字に起こす'
+                : screenshotOcrRegion
+                  ? '選択範囲を文字に起こす'
+                  : '画像全体を文字に起こす'}</button
+          >
+          <DeleteButton
+            title="スクリーンショットの削除"
+            message={`${local(selectedScreenshot.captured_at)} のスクリーンショットを削除します。画像ファイルも削除され、元に戻せません。`}
+            onconfirm={() => deleteScreenshot(selectedScreenshot!.id)}
+          />
+        </div>
       </footer>
     </section>
   </div>{/if}

@@ -1,0 +1,47 @@
+[
+  {
+    "name": "OCR model: PaddleOCR PP-OCRv5 mobile detection",
+    "license": "Apache-2.0",
+    "sourceUrl": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx/tree/e6f4fa85f00e168c862bc462aebca69eef9b3d3d",
+    "legalFiles": ["third-party/licenses/PaddleOCR-LICENSE.txt"],
+    "files": [
+      {
+        "path": "src-tauri/resources/ocr/PP-OCRv5_mobile_det.onnx",
+        "sha256": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d"
+      }
+    ]
+  },
+  {
+    "name": "OCR model: PaddleOCR PP-OCRv5 mobile recognition",
+    "license": "Apache-2.0",
+    "sourceUrl": "https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec_onnx/tree/ed152b8b495f84de93cda5709d768548a9127622",
+    "legalFiles": ["third-party/licenses/PaddleOCR-LICENSE.txt"],
+    "files": [
+      {
+        "path": "src-tauri/resources/ocr/PP-OCRv5_mobile_rec.onnx",
+        "sha256": "da72dc72ca4dc220df0dfde68c1dedc31c58d3e76a25871122e5056227d50092"
+      }
+    ]
+  },
+  {
+    "name": "OCR model data: PaddleOCR PP-OCRv5 character dictionary",
+    "license": "Apache-2.0",
+    "sourceUrl": "https://github.com/PaddlePaddle/PaddleOCR/blob/2661c7c0ef5c613e8f93c6e93b2e052399f0f854/ppocr/utils/dict/ppocrv5_dict.txt",
+    "legalFiles": ["third-party/licenses/PaddleOCR-LICENSE.txt"],
+    "files": [
+      {
+        "path": "src-tauri/resources/ocr/ppocrv5_dict.txt",
+        "sha256": "d1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b"
+      }
+    ]
+  },
+  {
+    "name": "Native runtime: Microsoft ONNX Runtime 1.24.2",
+    "license": "MIT",
+    "sourceUrl": "https://github.com/microsoft/onnxruntime/tree/v1.24.2",
+    "legalFiles": [
+      "third-party/licenses/ONNX-Runtime-LICENSE.txt",
+      "third-party/licenses/ONNX-Runtime-ThirdPartyNotices.txt"
+    ]
+  }
+]
