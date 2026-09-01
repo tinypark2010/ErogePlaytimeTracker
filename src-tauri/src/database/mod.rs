@@ -251,8 +251,12 @@ impl Database {
     }
     pub fn list_brands(&self) -> Result<Vec<String>> {
         let connection = self.0.lock();
-        let mut query =
-            connection.prepare("SELECT name FROM brands ORDER BY name COLLATE NOCASE")?;
+        let mut query = connection.prepare(
+            "SELECT b.name
+             FROM brands b
+             WHERE EXISTS(SELECT 1 FROM games g WHERE g.brand_id=b.id)
+             ORDER BY b.name COLLATE NOCASE",
+        )?;
         Ok(query
             .query_map([], |row| row.get(0))?
             .collect::<rusqlite::Result<_>>()?)
@@ -1834,6 +1838,34 @@ mod tests {
             1
         );
         assert_eq!(d.list_brands().unwrap().len(), 2);
+    }
+    #[test]
+    fn brand_list_excludes_brands_without_games() {
+        let d = Database::memory().unwrap();
+        game(&d);
+        let temporary_games = ["Temporary One", "Temporary Two"].map(|title| {
+            d.create_game(
+                &CreateGameInput {
+                    title: title.into(),
+                    brand: Some("Temporary Brand".into()),
+                    release_date: None,
+                    thumbnail_path: None,
+                    erogamescape_id: None,
+                    source_url: None,
+                    executable_paths: vec![],
+                },
+                None,
+            )
+            .unwrap()
+        });
+
+        assert_eq!(d.list_brands().unwrap(), vec!["B", "Temporary Brand"]);
+
+        d.delete_game(temporary_games[0]).unwrap();
+        assert_eq!(d.list_brands().unwrap(), vec!["B", "Temporary Brand"]);
+
+        d.delete_game(temporary_games[1]).unwrap();
+        assert_eq!(d.list_brands().unwrap(), vec!["B"]);
     }
     #[test]
     fn statistics_split_sessions_and_background_by_day() {
