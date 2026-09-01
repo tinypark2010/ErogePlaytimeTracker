@@ -65,6 +65,7 @@ export const api = {
   sessions: (gameId: number) => command<Session[]>('list_sessions', { gameId }),
   statistics: (period: StatisticsPeriodInput) =>
     command<StatisticsReport>('get_statistics', { period }),
+  gameStatistics: (gameId: number) => command<StatisticsReport>('get_game_statistics', { gameId }),
   intervals: (sessionId: number) =>
     command<BackgroundInterval[]>('list_background_intervals', { sessionId }),
   manualSession: (gameId: number, start: string, end: string) =>

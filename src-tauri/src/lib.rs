@@ -149,6 +149,7 @@ pub fn run() {
             commands::launch_game,
             commands::list_sessions,
             commands::get_statistics,
+            commands::get_game_statistics,
             commands::list_background_intervals,
             commands::create_manual_session,
             commands::update_session,

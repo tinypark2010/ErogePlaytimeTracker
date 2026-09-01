@@ -247,6 +247,10 @@ pub fn get_statistics(
     state.db.statistics(&period).map_err(err)
 }
 #[tauri::command]
+pub fn get_game_statistics(state: State<AppState>, game_id: i64) -> Cmd<StatisticsReport> {
+    state.db.game_statistics(game_id).map_err(err)
+}
+#[tauri::command]
 pub fn list_background_intervals(
     state: State<AppState>,
     session_id: i64,

@@ -8,19 +8,21 @@
     dailyTrend,
     formatDateKey,
     nextChartZoom,
+    timestampMarkerGroups,
     type DailyTrendPoint,
+    type TimestampMarkerGroup,
   } from '../lib/statistics';
   import { imageSrc } from '../lib/time';
-  import type { StatisticsDay, StatisticsPeriodKind } from '../lib/types';
+  import type { GameTimestamp, StatisticsDay, StatisticsPeriodKind } from '../lib/types';
 
   export let days: StatisticsDay[] = [];
   export let kind: StatisticsPeriodKind;
+  export let timestamps: GameTimestamp[] = [];
+  export let expanded = false;
+  export let fixedRange = false;
+  export let showGameBreakdown = true;
 
   const width = 900;
-  const chartViewHeight = 180;
-  const plotTop = 14;
-  const plotBottom = 140;
-  const plotHeight = plotBottom - plotTop;
   const panThreshold = 4;
   const gameColors = [
     '#9b7be8',
@@ -44,7 +46,7 @@
   let pinnedIndex: number | null = null;
   let activeIndex: number | null = null;
   let currentDays = days;
-  let chartPixelHeight = chartViewHeight;
+  let chartPixelHeight = 180;
   let chartPixelScale = 1;
   let chartPixelOffset = 0;
   let tooltipLeft = 0;
@@ -61,6 +63,13 @@
   let inertiaFrame: number | null = null;
 
   $: points = dailyTrend(days);
+  $: timestampGroups = timestampMarkerGroups(timestamps);
+  $: chartViewHeight = expanded
+    ? Math.max(240, Math.min(420, timestampGroups.length * 15 + 100))
+    : 180;
+  $: plotTop = 14;
+  $: plotBottom = chartViewHeight - 40;
+  $: plotHeight = plotBottom - plotTop;
   $: if (days !== currentDays) {
     stopInertia();
     resetPan();
@@ -76,7 +85,11 @@
   $: chartWidth = width * zoom;
   $: dailyAxisTicks = chartAxisTicks(Math.max(0, ...points.map((point) => point.playtime_seconds)));
   $: cumulativeAxisTicks = chartAxisTicks(
-    Math.max(0, ...points.map((point) => point.cumulative_seconds)),
+    Math.max(
+      0,
+      ...points.map((point) => point.cumulative_seconds),
+      ...timestampGroups.map((marker) => marker.playtimeSeconds),
+    ),
   );
   $: maximumDaily = dailyAxisTicks[dailyAxisTicks.length - 1].value;
   $: maximumCumulative = cumulativeAxisTicks[cumulativeAxisTicks.length - 1].value;
@@ -87,6 +100,7 @@
   );
   $: stackedBars = buildStackedBars(points, maximumDaily, chartWidth);
   $: cumulativePoints = buildCumulativePoints(points, maximumCumulative, chartWidth);
+  $: timestampLines = buildTimestampLines(timestampGroups, maximumCumulative, plotTop, plotBottom);
   $: activePoint = activeIndex === null ? null : (points[activeIndex] ?? null);
   $: activeGames = activePoint?.games ?? [];
   $: accessibleIndex = activeIndex ?? Math.max(0, points.length - 1);
@@ -164,7 +178,7 @@
   }
 
   function axisTitleTop() {
-    return chartPixelOffset + 164 * chartPixelScale;
+    return chartPixelOffset + (chartViewHeight - 16) * chartPixelScale;
   }
 
   function pointX(index: number, pointCount: number, graphWidth: number) {
@@ -203,12 +217,40 @@
       .join(' ');
   }
 
+  function buildTimestampLines(
+    groups: TimestampMarkerGroup[],
+    maximum: number,
+    top: number,
+    bottom: number,
+  ) {
+    const minimumLabelY = top + 7;
+    const maximumLabelY = bottom - 6;
+    const labelGap = 14;
+    const lines = groups.map((group) => {
+      const y = bottom - (group.playtimeSeconds / maximum) * (bottom - top);
+      return {
+        ...group,
+        y,
+        labelY: Math.max(minimumLabelY, y - 4),
+        label: `${group.names.join(' / ')} (${compactDuration(group.playtimeSeconds)})`,
+      };
+    });
+    for (let index = 1; index < lines.length; index += 1) {
+      lines[index].labelY = Math.max(lines[index].labelY, lines[index - 1].labelY + labelGap);
+    }
+    const overflow = (lines[lines.length - 1]?.labelY ?? maximumLabelY) - maximumLabelY;
+    if (overflow > 0) {
+      for (const line of lines) line.labelY -= overflow;
+    }
+    return lines;
+  }
+
   function axisLabel(date: string) {
     const year = Number(date.slice(0, 4));
     const month = Number(date.slice(5, 7));
     const day = Number(date.slice(8, 10));
     if (kind === 'month') return `${day}日`;
-    if (kind === 'year') return `${month}/${day}`;
+    if (kind === 'year' || (fixedRange && points.length <= 370)) return `${month}/${day}`;
     return `${year}/${month}`;
   }
 
@@ -480,16 +522,31 @@
           {/each}
           {#if points.length}
             <polyline class="statistics-chart-line" points={cumulativePoints} />
+            {#if points.length === 1}
+              <circle
+                class="statistics-chart-single-point"
+                cx={pointX(0, 1, chartWidth)}
+                cy={plotBottom - (points[0].cumulative_seconds / maximumCumulative) * plotHeight}
+                r="3.5"
+              />
+            {/if}
           {/if}
           {#each points as point, index}
             {#if index % labelStep === 0 || index === points.length - 1}
               <text
                 class="statistics-chart-label"
                 x={pointX(index, points.length, chartWidth)}
-                y="166"
+                y={chartViewHeight - 14}
                 text-anchor="middle">{axisLabel(point.date)}</text
               >
             {/if}
+          {/each}
+          {#each timestampLines as marker}
+            <g class="statistics-chart-timestamp">
+              <title>{marker.label}</title>
+              <line x1="0" y1={marker.y} x2={chartWidth} y2={marker.y} />
+              <text x={chartWidth - 6} y={marker.labelY} text-anchor="end">{marker.label}</text>
+            </g>
           {/each}
           {#if activePoint && activeIndex !== null}
             {@const x = pointX(activeIndex, points.length, chartWidth)}
@@ -526,23 +583,25 @@
           <dd>{compactDuration(activePoint.cumulative_seconds)}</dd>
         </div>
       </dl>
-      {#if activeGames.length}
-        <ul>
-          {#each activeGames as game}<li style={`--game-color: ${gameColor(game.game_id)}`}>
-              <span class="statistics-chart-game">
-                <span class="statistics-chart-game-image">
-                  {#if game.thumbnail_path}<img
-                      src={imageSrc(game.thumbnail_path)}
-                      alt=""
-                    />{:else}<i></i>{/if}
+      {#if showGameBreakdown}
+        {#if activeGames.length}
+          <ul>
+            {#each activeGames as game}<li style={`--game-color: ${gameColor(game.game_id)}`}>
+                <span class="statistics-chart-game">
+                  <span class="statistics-chart-game-image">
+                    {#if game.thumbnail_path}<img
+                        src={imageSrc(game.thumbnail_path)}
+                        alt=""
+                      />{:else}<i></i>{/if}
+                  </span>
+                  <span class="statistics-chart-game-title">{game.title}</span>
                 </span>
-                <span class="statistics-chart-game-title">{game.title}</span>
-              </span>
-              <strong>{compactDuration(game.playtime_seconds)}</strong>
-            </li>{/each}
-        </ul>
-      {:else}
-        <p>プレイ記録なし</p>
+                <strong>{compactDuration(game.playtime_seconds)}</strong>
+              </li>{/each}
+          </ul>
+        {:else}
+          <p>プレイ記録なし</p>
+        {/if}
       {/if}
     </div>
   {/if}
