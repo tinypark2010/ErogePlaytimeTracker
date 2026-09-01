@@ -2,7 +2,7 @@
 
 エロゲのプレイ時間を自動計測・記録するWindows向けアプリです。
 
-[公式サイト](https://tinypark2010.github.io/ErogePlaytimeTracker/) |
+[公式サイト](https://eroge-playtime-tracker.com/) |
 [最新版をダウンロード](https://github.com/tinypark2010/ErogePlaytimeTracker/releases/latest)
 
 ## 主な機能
