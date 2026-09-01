@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://tinypark2010.github.io/ErogePlaytimeTracker/sitemap.xml
+Sitemap: https://eroge-playtime-tracker.com/sitemap.xml
