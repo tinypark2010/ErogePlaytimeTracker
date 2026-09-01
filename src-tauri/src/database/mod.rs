@@ -826,6 +826,15 @@ impl Database {
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?)
     }
+    pub fn screenshot_path(&self, id: i64) -> Result<Option<String>> {
+        Ok(self
+            .0
+            .lock()
+            .query_row("SELECT path FROM game_screenshots WHERE id=?", [id], |r| {
+                r.get(0)
+            })
+            .optional()?)
+    }
     pub fn remove_screenshot(&self, id: i64) -> Result<Option<String>> {
         let mut c = self.0.lock();
         let tx = c.transaction()?;
@@ -1707,6 +1716,28 @@ mod tests {
             d.update_timestamp(i64::MAX, "存在しない記録", "2026-01-01T00:30:00Z")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn screenshot_path_is_resolved_from_the_database_id() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let id = d
+            .add_screenshot(
+                g,
+                None,
+                r#"C:\screenshots\sample.png"#,
+                "2026-01-01T00:00:00Z",
+                1920,
+                1080,
+            )
+            .unwrap();
+
+        assert_eq!(
+            d.screenshot_path(id).unwrap().as_deref(),
+            Some(r#"C:\screenshots\sample.png"#)
+        );
+        assert_eq!(d.screenshot_path(i64::MAX).unwrap(), None);
     }
 
     #[test]

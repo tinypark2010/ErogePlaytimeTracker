@@ -19,7 +19,10 @@ async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 directories = "6.0"
+image = "0.25"
 log = "0.4"
+ort = "=2.0.0-rc.12"
+paddleocr_rs_onnx = "=0.2.7"
 parking_lot = "0.12"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 rusqlite = { version = "0.37", features = ["bundled", "chrono"] }

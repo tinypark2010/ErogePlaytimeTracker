@@ -129,6 +129,15 @@ export interface GameScreenshot {
   width: number;
   height: number;
 }
+export interface ScreenshotOcrResult {
+  text: string;
+}
+export interface ScreenshotOcrRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 export interface Metadata {
   erogamescape_id: number;
   title: string;

@@ -6,6 +6,8 @@ import type {
   GameSummary,
   GameTimestamp,
   GameScreenshot,
+  ScreenshotOcrResult,
+  ScreenshotOcrRegion,
   Metadata,
   Session,
   Settings,
@@ -87,6 +89,8 @@ export const api = {
     command<void>('update_game_timestamp', { id, name, markedAt }),
   deleteTimestamp: (id: number) => command<void>('delete_game_timestamp', { id }),
   screenshots: (gameId: number) => command<GameScreenshot[]>('list_game_screenshots', { gameId }),
+  recognizeScreenshotText: (id: number, region: ScreenshotOcrRegion | null = null) =>
+    command<ScreenshotOcrResult>('recognize_screenshot_text', { id, region }),
   deleteScreenshot: (id: number) => command<void>('delete_game_screenshot', { id }),
   openScreenshotDirectory: (gameId: number) =>
     command<void>('open_screenshot_directory', { gameId }),

@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
   collectCargoDependencies,
+  collectAssetDependencies,
   collectNpmDependencies,
   renderLicenseNotice,
   repositoryUrl,
@@ -155,5 +157,51 @@ describe('source URLs', () => {
       'Source code is available at: https://crates.io/crates/mpl-example/2.0.0',
     );
     expect(notice).toContain('Source repository: https://github.com/example/mpl-example');
+  });
+});
+
+describe('redistributed asset inventory', () => {
+  test('includes legal notices and verifies tracked file hashes', () => {
+    const baseDir = temporaryDirectory();
+    mkdirSync(join(baseDir, 'third-party'), { recursive: true });
+    mkdirSync(join(baseDir, 'models'), { recursive: true });
+    writeFileSync(join(baseDir, 'third-party/LICENSE'), 'asset license text');
+    const model = Buffer.from('fixed model contents');
+    writeFileSync(join(baseDir, 'models/model.onnx'), model);
+    const sha256 = createHash('sha256').update(model).digest('hex');
+    const manifest = [
+      {
+        name: 'OCR model: example',
+        license: 'Apache-2.0',
+        sourceUrl: 'https://example.com/model/revision',
+        legalFiles: ['third-party/LICENSE'],
+        files: [{ path: 'models/model.onnx', sha256 }],
+      },
+    ];
+
+    expect(collectAssetDependencies(manifest, baseDir)).toEqual([
+      expect.objectContaining({
+        name: 'OCR model: example',
+        text: 'asset license text',
+      }),
+    ]);
+
+    writeFileSync(join(baseDir, 'models/model.onnx'), 'changed model contents');
+    expect(() => collectAssetDependencies(manifest, baseDir)).toThrow(
+      'SHA-256 mismatch for models/model.onnx',
+    );
+  });
+
+  test('rejects assets without a legal file', () => {
+    expect(() =>
+      collectAssetDependencies([
+        {
+          name: 'Native runtime: example',
+          license: 'MIT',
+          sourceUrl: 'https://example.com/runtime',
+          legalFiles: [],
+        },
+      ]),
+    ).toThrow('at least one legal file is required');
   });
 });

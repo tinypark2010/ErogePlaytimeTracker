@@ -2,6 +2,7 @@ mod commands;
 mod database;
 mod metadata;
 mod models;
+mod ocr;
 mod screenshot;
 mod thumbnail;
 mod tracking;
@@ -175,6 +176,7 @@ pub fn run() {
             commands::resume_screenshot_hotkey,
             commands::get_tracking_status,
             commands::list_game_screenshots,
+            commands::recognize_screenshot_text,
             commands::delete_game_screenshot,
             commands::open_screenshot_directory
         ])

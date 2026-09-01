@@ -53,6 +53,7 @@ dataは`%LOCALAPPDATA%\ErogePlaytimeTracker\`配下に保存します。
 - log: Tauri log pluginの標準app log directory
 
 durationはDBへ重複保存せず、sessionとintervalのtimestampからquery時に算出します。
+Screenshotの文字起こしは同梱したPP-OCRv5 mobileの検出・認識modelを`paddleocr_rs_onnx`とONNX Runtimeでon-demand実行します。modelは初回実行時にprocess内で初期化し、その後は再利用します。UIで指定した範囲はnormalized coordinatesとしてcommandへ渡し、Rust側で元画像からcropします。画像や認識結果をnetworkへ送信せず、認識結果はDBへ保存しません。
 
 ## Tracking方式
 
@@ -85,7 +86,7 @@ workflowはfrontendとRustのcheck・test、dependency license audit、third-par
 
 ## License
 
-app本体は [MIT License](../LICENSE) で提供します。Rustとnpmのdependencyにはそれぞれのlicenseが適用され、配布時の一覧は`npm run licenses`で重複を除いて生成します。`THIRD_PARTY_LICENSES.txt`はgenerated fileのためGit管理せず、Tauri buildとGitHub Actionsがinstaller作成前に生成します。
+app本体は [MIT License](../LICENSE) で提供します。Rustとnpmのdependency、同梱model、native runtimeにはそれぞれのlicenseが適用されます。`third-party/assets.json`ではCargo/npm外の配布物についてsource revision、SHA-256、legal textを管理し、`npm run licenses`で整合性を検証して一覧を生成します。`THIRD_PARTY_LICENSES.txt`はgenerated fileのためGit管理せず、Tauri buildとGitHub Actionsがinstaller作成前に生成します。
 
 ## 既知の制約
 

@@ -202,6 +202,17 @@ pub struct GameScreenshot {
     pub height: i64,
 }
 #[derive(Debug, Clone, Serialize)]
+pub struct ScreenshotOcrResult {
+    pub text: String,
+}
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct ScreenshotOcrRegion {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+#[derive(Debug, Clone, Serialize)]
 pub struct TrackingGameStatus {
     pub game_id: i64,
     pub title: String,

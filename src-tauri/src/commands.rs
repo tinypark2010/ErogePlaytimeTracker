@@ -488,6 +488,28 @@ pub fn list_game_screenshots(state: State<AppState>, game_id: i64) -> Cmd<Vec<Ga
 }
 
 #[tauri::command]
+pub async fn recognize_screenshot_text(
+    state: State<'_, AppState>,
+    id: i64,
+    region: Option<ScreenshotOcrRegion>,
+) -> Cmd<ScreenshotOcrResult> {
+    let path = state
+        .db
+        .screenshot_path(id)
+        .map_err(err)?
+        .ok_or_else(|| user_error("スクリーンショットが見つかりません。"))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::ocr::recognize_japanese_text(std::path::Path::new(&path), region)
+    })
+    .await
+    .map_err(err)?
+    .map_err(|error| {
+        log::error!("screenshot OCR failed: {error:#}");
+        user_error(error.user_message())
+    })
+}
+
+#[tauri::command]
 pub fn delete_game_screenshot(state: State<AppState>, id: i64) -> Cmd<()> {
     if let Some(path) = state.db.remove_screenshot(id).map_err(err)? {
         match std::fs::remove_file(path) {

@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const allowed = new Set([
@@ -160,6 +161,58 @@ export function collectCargoDependencies(cargo) {
   return dependencies;
 }
 
+function repositoryFile(baseDir, file, owner) {
+  if (typeof file !== 'string' || !file) throw new Error(`${owner}: file path is missing`);
+  const root = resolve(baseDir);
+  const path = resolve(root, file);
+  const relativePath = relative(root, path);
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+    throw new Error(`${owner}: file must be inside the repository (${file})`);
+  }
+  if (!existsSync(path)) throw new Error(`${owner}: file is missing (${file})`);
+  return path;
+}
+
+export function collectAssetDependencies(assetManifest, baseDir = '.') {
+  if (!Array.isArray(assetManifest)) throw new Error('third-party asset manifest must be an array');
+
+  return assetManifest.map((asset) => {
+    if (!asset.name) throw new Error('third-party asset name is missing');
+    checkExpression(asset.license, asset.name);
+    if (!repositoryUrl(asset.sourceUrl)) throw new Error(`${asset.name}: source URL is invalid`);
+    if (!Array.isArray(asset.legalFiles) || asset.legalFiles.length === 0) {
+      throw new Error(`${asset.name}: at least one legal file is required`);
+    }
+
+    const legalTexts = asset.legalFiles.map((file) => ({
+      file,
+      text: readFileSync(repositoryFile(baseDir, file, asset.name), 'utf8')
+        .replace(/\r\n/g, '\n')
+        .trim(),
+    }));
+    for (const file of asset.files ?? []) {
+      if (!/^[a-f0-9]{64}$/i.test(file.sha256 ?? '')) {
+        throw new Error(`${asset.name}: SHA-256 is invalid for ${file.path ?? 'unknown file'}`);
+      }
+      const contents = readFileSync(repositoryFile(baseDir, file.path, asset.name));
+      const actual = createHash('sha256').update(contents).digest('hex');
+      if (actual !== file.sha256.toLowerCase()) {
+        throw new Error(`${asset.name}: SHA-256 mismatch for ${file.path}`);
+      }
+    }
+
+    return {
+      name: asset.name,
+      license: asset.license,
+      sourceUrl: asset.sourceUrl,
+      text:
+        legalTexts.length === 1
+          ? legalTexts[0].text
+          : legalTexts.map(({ file, text }) => `----- ${file} -----\n\n${text}`).join('\n\n'),
+    };
+  });
+}
+
 export function renderLicenseNotice(inputDependencies) {
   const dependencies = [...inputDependencies].sort((a, b) => a.name.localeCompare(b.name));
   const groups = new Map();
@@ -191,7 +244,7 @@ export function renderLicenseNotice(inputDependencies) {
     return `License text ${index + 1}\n\nUsed by:\n${usedBy}\n\n${text}`;
   });
   const divider = '\n\n' + '='.repeat(78) + '\n\n';
-  const header = `Eroge Playtime Tracker - Third-Party Licenses\n\nGenerated from package-lock.json and Cargo.lock for the Windows x64 distribution.\nThe project itself is licensed separately under the MIT License in LICENSE.\nEvery dependency includes a source location in the inventory below.\nIdentical license texts are included once and shared by every package listed under "Used by".\n\nDEPENDENCY INVENTORY\n\n`;
+  const header = `Eroge Playtime Tracker - Third-Party Licenses\n\nGenerated from package-lock.json, Cargo.lock, and third-party/assets.json for the Windows x64 distribution.\nThe project itself is licensed separately under the MIT License in LICENSE.\nEvery dependency and redistributed asset includes a source location in the inventory below.\nIdentical license texts are included once and shared by every package listed under "Used by".\n\nDEPENDENCY INVENTORY\n\n`;
   return {
     content:
       header +
@@ -226,13 +279,18 @@ export function generateLicenseFile(baseDir = '.') {
     ),
   );
   const rustDependencies = collectCargoDependencies(cargo);
-  const dependencies = [...npmDependencies, ...rustDependencies];
+  const assetDependencies = collectAssetDependencies(
+    JSON.parse(readFileSync(join(baseDir, 'third-party/assets.json'), 'utf8')),
+    baseDir,
+  );
+  const dependencies = [...npmDependencies, ...rustDependencies, ...assetDependencies];
   const notice = renderLicenseNotice(dependencies);
   writeFileSync(join(baseDir, 'THIRD_PARTY_LICENSES.txt'), notice.content);
   return {
     dependencyCount: dependencies.length,
     npmDependencyCount: npmDependencies.length,
     rustDependencyCount: rustDependencies.length,
+    assetDependencyCount: assetDependencies.length,
     groupCount: notice.groupCount,
   };
 }
@@ -241,6 +299,6 @@ const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).hr
 if (invokedPath === import.meta.url) {
   const result = generateLicenseFile();
   console.log(
-    `Generated THIRD_PARTY_LICENSES.txt with ${result.npmDependencyCount} npm dependencies, ${result.rustDependencyCount} Rust crates, and ${result.groupCount} unique license texts.`,
+    `Generated THIRD_PARTY_LICENSES.txt with ${result.npmDependencyCount} npm dependencies, ${result.rustDependencyCount} Rust crates, ${result.assetDependencyCount} redistributed assets, and ${result.groupCount} unique license texts.`,
   );
 }
