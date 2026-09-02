@@ -242,6 +242,14 @@ pub struct BackupExportResult {
     pub file_size: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupExportProgress {
+    pub phase: String,
+    pub processed_bytes: u64,
+    pub total_bytes: u64,
+    pub file_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupImportPreview {
     pub import_id: String,

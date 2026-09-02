@@ -1486,6 +1486,18 @@ small {
 .backup-setting-feedback {
   min-height: 1.3rem;
 }
+.backup-progress {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.backup-progress progress {
+  width: 100%;
+}
+.backup-progress small {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .backup-import-modal {
   z-index: 20;
   background: #08070dc7;

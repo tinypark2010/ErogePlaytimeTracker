@@ -1,7 +1,8 @@
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { normalizeCommandError } from './errors';
 import type {
   BackgroundInterval,
+  BackupExportProgress,
   BackupExportResult,
   BackupImportNotice,
   BackupImportPreview,
@@ -109,11 +110,26 @@ export const api = {
     command<void>('validate_screenshot_hotkey', { hotkey }),
   suspendScreenshotHotkey: () => command<void>('suspend_screenshot_hotkey'),
   resumeScreenshotHotkey: () => command<void>('resume_screenshot_hotkey'),
-  exportBackup: (destination: string, includeScreenshots: boolean) =>
-    command<BackupExportResult>('export_backup', { destination, includeScreenshots }),
+  exportBackup: (
+    destination: string,
+    includeScreenshots: boolean,
+    onProgress: (progress: BackupExportProgress) => void,
+  ) => {
+    const progressChannel = new Channel<BackupExportProgress>();
+    progressChannel.onmessage = onProgress;
+    return command<BackupExportResult>('export_backup', {
+      destination,
+      includeScreenshots,
+      onProgress: progressChannel,
+    });
+  },
   prepareBackupImport: (source: string) =>
     command<BackupImportPreview>('prepare_backup_import', { source }),
-  confirmBackupImport: (importId: string) => command<void>('confirm_backup_import', { importId }),
+  confirmBackupImport: (importId: string, onProgress: (progress: BackupExportProgress) => void) => {
+    const progressChannel = new Channel<BackupExportProgress>();
+    progressChannel.onmessage = onProgress;
+    return command<void>('confirm_backup_import', { importId, onProgress: progressChannel });
+  },
   cancelBackupImport: (importId: string) => command<void>('cancel_backup_import', { importId }),
   takeBackupImportNotice: () => command<BackupImportNotice | null>('take_backup_import_notice'),
   status: () => command<TrackingStatus>('get_tracking_status'),

@@ -3,7 +3,7 @@ use crate::{
     metadata::{ErogameScapeProvider, GameMetadataProvider},
     models::*,
 };
-use tauri::State;
+use tauri::{State, ipc::Channel};
 type Cmd<T> = Result<T, String>;
 
 const USER_ERROR_PREFIX: &str = "ept:user-error:";
@@ -508,6 +508,7 @@ pub async fn export_backup(
     state: State<'_, AppState>,
     destination: String,
     include_screenshots: bool,
+    on_progress: Channel<BackupExportProgress>,
 ) -> Cmd<BackupExportResult> {
     ensure_backup_idle(&state)?;
     let database = state.db.clone();
@@ -529,6 +530,9 @@ pub async fn export_backup(
             std::path::Path::new(destination.trim()),
             false,
             include_screenshots,
+            |progress| {
+                let _ = on_progress.send(progress);
+            },
         )
         .map_err(|error| backup_operation_error(error, "バックアップを作成できませんでした。"))
     })
@@ -572,7 +576,11 @@ pub async fn prepare_backup_import(
 }
 
 #[tauri::command]
-pub async fn confirm_backup_import(state: State<'_, AppState>, import_id: String) -> Cmd<()> {
+pub async fn confirm_backup_import(
+    state: State<'_, AppState>,
+    import_id: String,
+    on_progress: Channel<BackupExportProgress>,
+) -> Cmd<()> {
     ensure_backup_idle(&state)?;
     let database = state.db.clone();
     let data_root = state.data_root.clone();
@@ -587,7 +595,9 @@ pub async fn confirm_backup_import(state: State<'_, AppState>, import_id: String
                 "起動中のゲームを終了してからバックアップ操作を行ってください。",
             ));
         }
-        crate::backup::confirm_import(&database, &data_root, &import_id)
+        crate::backup::confirm_import(&database, &data_root, &import_id, |progress| {
+            let _ = on_progress.send(progress);
+        })
             .map_err(|error| backup_operation_error(error, "インポートを開始できませんでした。"))?;
         if !tracker.status().games.is_empty() {
             let _ = crate::backup::cancel_import(&data_root, &import_id);
