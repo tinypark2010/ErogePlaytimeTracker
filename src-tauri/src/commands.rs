@@ -477,6 +477,149 @@ pub fn resume_screenshot_hotkey(state: State<AppState>) -> Cmd<()> {
         .set_hotkey(state.settings().screenshot_hotkey)
         .map_err(err)
 }
+
+fn ensure_backup_idle(state: &AppState) -> Cmd<()> {
+    if state.tracker.status().games.is_empty() {
+        Ok(())
+    } else {
+        Err(user_error(
+            "起動中のゲームを終了してからバックアップ操作を行ってください。",
+        ))
+    }
+}
+
+fn backup_operation_error(error: anyhow::Error, message: &str) -> String {
+    let detail = error.to_string();
+    log::error!("backup operation failed: {error:#}");
+    if detail.contains("新しいバージョンで作成") {
+        return user_error(
+            "このバックアップは新しいバージョンのアプリで作成されています。アプリを更新してからお試しください。",
+        );
+    }
+    if detail.contains("データフォルダー内にはバックアップを保存できません")
+    {
+        return user_error("アプリの内部データフォルダー以外の場所を保存先に選んでください。");
+    }
+    user_error(message)
+}
+
+#[tauri::command]
+pub async fn export_backup(
+    state: State<'_, AppState>,
+    destination: String,
+) -> Cmd<BackupExportResult> {
+    ensure_backup_idle(&state)?;
+    let database = state.db.clone();
+    let data_root = state.data_root.clone();
+    let tracker = state.tracker.clone();
+    let operations = state.backup_operations.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(_operation) = operations.try_lock() else {
+            return Err(user_error("別のバックアップ操作を実行中です。"));
+        };
+        if !tracker.status().games.is_empty() {
+            return Err(user_error(
+                "起動中のゲームを終了してからバックアップ操作を行ってください。",
+            ));
+        }
+        crate::backup::export_backup(
+            &database,
+            &data_root,
+            std::path::Path::new(destination.trim()),
+            false,
+        )
+        .map_err(|error| backup_operation_error(error, "バックアップを作成できませんでした。"))
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn prepare_backup_import(
+    state: State<'_, AppState>,
+    source: String,
+) -> Cmd<BackupImportPreview> {
+    ensure_backup_idle(&state)?;
+    let database = state.db.clone();
+    let data_root = state.data_root.clone();
+    let tracker = state.tracker.clone();
+    let operations = state.backup_operations.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(_operation) = operations.try_lock() else {
+            return Err(user_error("別のバックアップ操作を実行中です。"));
+        };
+        if !tracker.status().games.is_empty() {
+            return Err(user_error(
+                "起動中のゲームを終了してからバックアップ操作を行ってください。",
+            ));
+        }
+        crate::backup::prepare_import(
+            &database,
+            &data_root,
+            std::path::Path::new(source.trim()),
+        )
+        .map_err(|error| {
+            backup_operation_error(
+                error,
+                "バックアップを読み込めませんでした。ファイルが破損しているか、対応していない形式です。",
+            )
+        })
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn confirm_backup_import(state: State<'_, AppState>, import_id: String) -> Cmd<()> {
+    ensure_backup_idle(&state)?;
+    let database = state.db.clone();
+    let data_root = state.data_root.clone();
+    let tracker = state.tracker.clone();
+    let operations = state.backup_operations.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(_operation) = operations.try_lock() else {
+            return Err(user_error("別のバックアップ操作を実行中です。"));
+        };
+        if !tracker.status().games.is_empty() {
+            return Err(user_error(
+                "起動中のゲームを終了してからバックアップ操作を行ってください。",
+            ));
+        }
+        crate::backup::confirm_import(&database, &data_root, &import_id)
+            .map_err(|error| backup_operation_error(error, "インポートを開始できませんでした。"))?;
+        if !tracker.status().games.is_empty() {
+            let _ = crate::backup::cancel_import(&data_root, &import_id);
+            return Err(user_error(
+                "ゲームの起動を検出したため、インポートを取り消しました。ゲームを終了してからもう一度お試しください。",
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn cancel_backup_import(state: State<'_, AppState>, import_id: String) -> Cmd<()> {
+    let data_root = state.data_root.clone();
+    let operations = state.backup_operations.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(_operation) = operations.try_lock() else {
+            return Err(user_error("別のバックアップ操作を実行中です。"));
+        };
+        crate::backup::cancel_import(&data_root, &import_id)
+            .map_err(|error| backup_operation_error(error, "インポートを取り消せませんでした。"))
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub fn take_backup_import_notice(state: State<AppState>) -> Cmd<Option<BackupImportNotice>> {
+    crate::backup::take_import_notice(&state.data_root)
+        .map_err(|error| backup_operation_error(error, "インポート結果を確認できませんでした。"))
+}
+
 #[tauri::command]
 pub fn get_tracking_status(state: State<AppState>) -> TrackingStatus {
     state.tracker.status()

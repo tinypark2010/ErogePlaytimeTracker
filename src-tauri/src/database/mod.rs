@@ -11,6 +11,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Database(Arc<Mutex<Connection>>);
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 5;
 const MIGRATION_1: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE brands(id INTEGER PRIMARY KEY, erogamescape_id INTEGER, name TEXT NOT NULL COLLATE NOCASE UNIQUE);
@@ -80,6 +81,23 @@ impl Database {
         let db = Self(Arc::new(Mutex::new(conn)));
         db.migrate()?;
         Ok(db)
+    }
+    pub(crate) fn snapshot_to(&self, destination: &Path) -> Result<()> {
+        if destination.exists() {
+            std::fs::remove_file(destination).with_context(|| {
+                format!(
+                    "既存の一時データベースを削除できません: {}",
+                    destination.display()
+                )
+            })?;
+        }
+        self.0
+            .lock()
+            .execute("VACUUM INTO ?1", [destination.to_string_lossy().as_ref()])?;
+        Ok(())
+    }
+    pub(crate) fn backup_summary(&self) -> Result<BackupDataSummary> {
+        backup_summary(&self.0.lock())
     }
     fn migrate(&self) -> Result<()> {
         let mut c = self.0.lock();
@@ -1255,6 +1273,29 @@ fn game_row(r: &rusqlite::Row) -> rusqlite::Result<GameSummary> {
         play_status: r.get(10)?,
     })
 }
+fn backup_summary(connection: &Connection) -> Result<BackupDataSummary> {
+    Ok(BackupDataSummary {
+        game_count: connection.query_row("SELECT COUNT(*) FROM games", [], |row| row.get(0))?,
+        session_count: connection
+            .query_row("SELECT COUNT(*) FROM play_sessions", [], |row| row.get(0))?,
+        timestamp_count: connection.query_row(
+            "SELECT COUNT(*) FROM game_timestamps",
+            [],
+            |row| row.get(0),
+        )?,
+        screenshot_count: connection.query_row(
+            "SELECT COUNT(*) FROM game_screenshots",
+            [],
+            |row| row.get(0),
+        )?,
+        thumbnail_count: connection.query_row(
+            "SELECT COUNT(*) FROM games WHERE thumbnail_path IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?,
+    })
+}
+
 fn now() -> String {
     Utc::now().to_rfc3339()
 }

@@ -50,10 +50,17 @@ dataは`%LOCALAPPDATA%\ErogePlaytimeTracker\`配下に保存します。
 - `app.db`: SQLite database（WAL、foreign key有効、UTC RFC 3339 timestamp）
 - `thumbnails\`: download済みpackage image cache
 - `screenshots\`: 撮影したscreenshot
+- `backups\`: import直前に自動作成される復旧用`.eptbackup`
 - log: Tauri log pluginの標準app log directory
 
 durationはDBへ重複保存せず、sessionとintervalのtimestampからquery時に算出します。
 Screenshotの文字起こしは同梱したPP-OCRv5 mobileの検出・認識modelを`paddleocr_rs_onnx`とONNX Runtimeでon-demand実行します。modelは初回実行時にprocess内で初期化し、その後は再利用します。UIで指定した範囲はnormalized coordinatesとしてcommandへ渡し、Rust側で元画像からcropします。画像や認識結果をnetworkへ送信せず、認識結果はDBへ保存しません。
+
+## Backup / restore
+
+設定画面から作成する`.eptbackup`は、SQLiteの一貫したsnapshot、参照中のthumbnailとscreenshot、format/schema version、各fileのSHA-256を含むZIP archiveです。archive作成はfileを読みながらchecksum計算と圧縮を1 passで行います。snapshot内のmedia pathはarchive相対pathへ変換し、import先を検証した後で新しい`%LOCALAPPDATA%`配下の絶対pathへ書き換えます。game executable pathは保持しますが、game本体のfileは含めません。
+
+Importはmergeではなく全置換です。archive path、重複entry、symlink、size、checksum、SQLite integrity/foreign key、schema versionをactive dataへ触れる前にstaging領域で検証します。確定時に現在のdataを`backups\`へ自動exportし、pending markerを書いて再起動します。次回起動時のdata directory切替に失敗した場合や切替中に中断された場合はrollback directoryから元のdataへ戻します。対応済みの古いschemaはstaging内でmigrationし、新しいschema versionのbackupは対応versionへappを更新するまで拒否します。移行元の設定は復元しますが、`last_seen`とskip中のupdate versionは移行先向けにresetし、autostartは移行先のWindowsへ再適用します。
 
 ## Tracking方式
 
