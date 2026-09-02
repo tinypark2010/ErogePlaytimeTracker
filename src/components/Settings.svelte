@@ -6,7 +6,7 @@
   import { check } from '@tauri-apps/plugin-updater';
   import { api } from '../lib/api';
   import { userErrorMessage } from '../lib/errors';
-  import type { BackupImportPreview, Settings, Theme } from '../lib/types';
+  import type { BackupExportProgress, BackupImportPreview, Settings, Theme } from '../lib/types';
   export let ontheme: (theme: Theme) => void = () => {};
   export let ondirty: (dirty: boolean) => void = () => {};
   export let onsaved: (settings: Settings) => void = () => {};
@@ -39,6 +39,7 @@
     destroyed = false,
     includeScreenshots = true;
   let importPreview: BackupImportPreview | null = null;
+  let backupProgress: BackupExportProgress | null = null;
   let availableUpdate: Awaited<ReturnType<typeof check>> = null;
   let previewUpdateAvailable = false;
   $: availableVersion = availableUpdate?.version ?? '0.1.6';
@@ -252,6 +253,20 @@
     }
     return `${value.toFixed(value >= 10 ? 1 : 2)} ${unit}`;
   }
+  function updateBackupProgress(progress: BackupExportProgress, automatic = false) {
+    backupProgress = progress;
+    const target = automatic ? '現在のデータを自動バックアップ' : 'バックアップ';
+    if (progress.phase === 'preparing') {
+      backupMessage = `${target}する準備をしています…`;
+    } else if (progress.phase === 'archiving') {
+      const percent = progress.total_bytes
+        ? Math.min(100, Math.round((progress.processed_bytes / progress.total_bytes) * 100))
+        : 0;
+      backupMessage = `${target}しています… ${percent}%`;
+    } else {
+      backupMessage = `${target}を仕上げています…`;
+    }
+  }
   async function exportData() {
     if (backupBusy || trackingActive) return;
     let destination: string | null;
@@ -266,10 +281,13 @@
     }
     if (!destination) return;
     backupBusy = true;
+    backupProgress = null;
     backupMessage = 'バックアップを作成しています…';
     backupError = '';
     try {
-      const result = await api.exportBackup(destination, includeScreenshots);
+      const result = await api.exportBackup(destination, includeScreenshots, (progress) =>
+        updateBackupProgress(progress),
+      );
       if (destroyed) return;
       backupMessage = `バックアップを作成しました（${formatBytes(result.file_size)}）。`;
       if (!result.includes_screenshots) {
@@ -282,6 +300,7 @@
       backupMessage = '';
       backupError = userErrorMessage(e, 'バックアップを作成できませんでした。');
     } finally {
+      backupProgress = null;
       backupBusy = false;
     }
   }
@@ -300,6 +319,7 @@
     }
     if (!source || Array.isArray(source)) return;
     backupBusy = true;
+    backupProgress = null;
     backupMessage = 'バックアップを検証しています…';
     backupError = '';
     try {
@@ -314,6 +334,7 @@
       backupMessage = '';
       backupError = userErrorMessage(e, 'バックアップを読み込めませんでした。');
     } finally {
+      backupProgress = null;
       backupBusy = false;
     }
   }
@@ -330,9 +351,12 @@
   async function confirmImport() {
     if (!importPreview || backupBusy || trackingActive) return;
     backupBusy = true;
+    backupProgress = null;
     backupError = '';
     try {
-      await api.confirmBackupImport(importPreview.import_id);
+      await api.confirmBackupImport(importPreview.import_id, (progress) =>
+        updateBackupProgress(progress, true),
+      );
       importConfirmed = true;
       backupMessage = 'インポートを適用するため再起動しています…';
       await relaunch();
@@ -340,6 +364,7 @@
       importConfirmed = false;
       await api.cancelBackupImport(importPreview.import_id).catch(() => {});
       backupMessage = '';
+      backupProgress = null;
       backupError = userErrorMessage(e, 'インポートを開始できませんでした。');
       importPreview = null;
       backupBusy = false;
@@ -486,6 +511,19 @@
     <div class="backup-setting-feedback" aria-live="polite">
       {#if backupMessage}<p>{backupMessage}</p>{/if}
       {#if backupError}<p class="error">{backupError}</p>{/if}
+      {#if backupBusy}<div class="backup-progress">
+          {#if backupProgress?.phase === 'archiving' && backupProgress.total_bytes > 0}
+            <progress value={backupProgress.processed_bytes} max={backupProgress.total_bytes}
+            ></progress>
+            <small>
+              {formatBytes(backupProgress.processed_bytes)} / {formatBytes(
+                backupProgress.total_bytes,
+              )}
+            </small>
+          {:else}
+            <progress></progress>
+          {/if}
+        </div>{/if}
     </div>
   </div>
   <button class="primary" disabled={recordingHotkey || checkingHotkey} onclick={save}>保存</button

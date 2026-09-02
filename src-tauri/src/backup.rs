@@ -1,7 +1,8 @@
 use crate::{
     database::{CURRENT_SCHEMA_VERSION, Database},
     models::{
-        AppSettings, BackupDataSummary, BackupExportResult, BackupImportNotice, BackupImportPreview,
+        AppSettings, BackupDataSummary, BackupExportProgress, BackupExportResult,
+        BackupImportNotice, BackupImportPreview,
     },
 };
 use anyhow::{Context, Result, ensure};
@@ -84,7 +85,9 @@ pub(crate) fn export_backup(
     requested_destination: &Path,
     allow_inside_data_root: bool,
     includes_screenshots: bool,
+    mut on_progress: impl FnMut(BackupExportProgress),
 ) -> Result<BackupExportResult> {
+    on_progress(export_progress("preparing", 0, 0, 0));
     let destination = backup_destination(requested_destination);
     let parent = destination
         .parent()
@@ -117,6 +120,13 @@ pub(crate) fn export_backup(
             files.push(export_file(archive_path, source)?);
         }
         files.sort_by(|left, right| left.path.cmp(&right.path));
+        let total_bytes = files.iter().try_fold(0_u64, |total, file| {
+            total
+                .checked_add(file.size)
+                .context("バックアップサイズが不正です")
+        })?;
+        on_progress(export_progress("archiving", 0, total_bytes, files.len()));
+
         let mut manifest = BackupManifest {
             format: BACKUP_FORMAT.into(),
             format_version: BACKUP_FORMAT_VERSION,
@@ -127,7 +137,19 @@ pub(crate) fn export_backup(
             summary: prepared.summary.clone(),
             files: Vec::with_capacity(files.len()),
         };
-        write_archive(&partial, &mut manifest, &files)?;
+        write_archive(
+            &partial,
+            &mut manifest,
+            &files,
+            total_bytes,
+            &mut on_progress,
+        )?;
+        on_progress(export_progress(
+            "finalizing",
+            total_bytes,
+            total_bytes,
+            files.len(),
+        ));
         replace_file(&partial, &destination, &operation_id)?;
         let file_size = destination.metadata()?.len();
         Ok(BackupExportResult {
@@ -226,7 +248,12 @@ pub(crate) fn prepare_import(
     result
 }
 
-pub(crate) fn confirm_import(database: &Database, data_root: &Path, import_id: &str) -> Result<()> {
+pub(crate) fn confirm_import(
+    database: &Database,
+    data_root: &Path,
+    import_id: &str,
+    on_progress: impl FnMut(BackupExportProgress),
+) -> Result<()> {
     validate_import_id(import_id)?;
     ensure!(
         !data_root.join(PENDING_IMPORT_FILE).exists()
@@ -250,7 +277,7 @@ pub(crate) fn confirm_import(database: &Database, data_root: &Path, import_id: &
         Utc::now().format("%Y%m%d-%H%M%S-%3f")
     );
     let auto_backup = backups.join(filename);
-    export_backup(database, data_root, &auto_backup, true, true)?;
+    export_backup(database, data_root, &auto_backup, true, true, on_progress)?;
     write_json_atomic(
         &data_root.join(PENDING_IMPORT_FILE),
         &PendingImport {
@@ -732,17 +759,25 @@ fn validate_manifest(manifest: &BackupManifest) -> Result<()> {
     Ok(())
 }
 
-fn write_archive(path: &Path, manifest: &mut BackupManifest, files: &[ExportFile]) -> Result<()> {
+fn write_archive(
+    path: &Path,
+    manifest: &mut BackupManifest,
+    files: &[ExportFile],
+    total_bytes: u64,
+    on_progress: &mut impl FnMut(BackupExportProgress),
+) -> Result<()> {
     let output = File::create(path)?;
     let mut archive = ZipWriter::new(output);
     let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .unix_permissions(0o600);
+    let mut processed_bytes = 0_u64;
+    let mut last_reported_bytes = 0_u64;
     for file in files {
         archive.start_file(&file.path, options)?;
         let mut source = File::open(&file.source)?;
         let mut hasher = Sha256::new();
-        let mut written = 0_u64;
+        let file_start = processed_bytes;
         let mut buffer = [0_u8; 64 * 1024];
         loop {
             let read = source.read(&mut buffer)?;
@@ -751,10 +786,19 @@ fn write_archive(path: &Path, manifest: &mut BackupManifest, files: &[ExportFile
             }
             archive.write_all(&buffer[..read])?;
             hasher.update(&buffer[..read]);
-            written += read as u64;
+            processed_bytes += read as u64;
+            if processed_bytes.saturating_sub(last_reported_bytes) >= 512 * 1024 {
+                on_progress(export_progress(
+                    "archiving",
+                    processed_bytes,
+                    total_bytes,
+                    files.len(),
+                ));
+                last_reported_bytes = processed_bytes;
+            }
         }
         ensure!(
-            written == file.size,
+            processed_bytes - file_start == file.size,
             "書き込み中にファイルサイズが変化しました"
         );
         let digest = hasher.finalize();
@@ -763,6 +807,15 @@ fn write_archive(path: &Path, manifest: &mut BackupManifest, files: &[ExportFile
             size: file.size,
             sha256: hex_digest(&digest),
         });
+        if processed_bytes != last_reported_bytes {
+            on_progress(export_progress(
+                "archiving",
+                processed_bytes,
+                total_bytes,
+                files.len(),
+            ));
+            last_reported_bytes = processed_bytes;
+        }
     }
     archive.start_file(MANIFEST_PATH, options)?;
     archive.write_all(&serde_json::to_vec_pretty(manifest)?)?;
@@ -774,6 +827,20 @@ fn write_archive(path: &Path, manifest: &mut BackupManifest, files: &[ExportFile
 fn export_file(path: String, source: PathBuf) -> Result<ExportFile> {
     let size = source.metadata()?.len();
     Ok(ExportFile { path, size, source })
+}
+
+fn export_progress(
+    phase: &str,
+    processed_bytes: u64,
+    total_bytes: u64,
+    file_count: usize,
+) -> BackupExportProgress {
+    BackupExportProgress {
+        phase: phase.into(),
+        processed_bytes,
+        total_bytes,
+        file_count,
+    }
 }
 
 fn default_true() -> bool {
@@ -1268,11 +1335,31 @@ mod tests {
             .set_setting("last_seen", "2020-01-01T00:00:00Z")
             .unwrap();
         let backup_path = temporary.0.join("migration.eptbackup");
-        let exported =
-            export_backup(&source_database, &source_root, &backup_path, false, true).unwrap();
+        let mut progress = Vec::new();
+        let exported = export_backup(
+            &source_database,
+            &source_root,
+            &backup_path,
+            false,
+            true,
+            |event| progress.push(event),
+        )
+        .unwrap();
         assert_eq!(exported.summary.game_count, 1);
         assert_eq!(exported.summary.thumbnail_count, 1);
         assert_eq!(exported.summary.screenshot_count, 1);
+        assert!(exported.includes_screenshots);
+        assert_eq!(progress.first().unwrap().phase, "preparing");
+        assert_eq!(progress.last().unwrap().phase, "finalizing");
+        assert_eq!(
+            progress.last().unwrap().processed_bytes,
+            progress.last().unwrap().total_bytes
+        );
+        assert!(
+            progress
+                .windows(2)
+                .all(|events| { events[0].processed_bytes <= events[1].processed_bytes })
+        );
 
         let (destination_root, destination_database, _) =
             create_data_root(&temporary.0, "destination");
@@ -1281,7 +1368,13 @@ mod tests {
         assert_eq!(preview.summary, exported.summary);
         assert_eq!(preview.current_summary.game_count, 1);
         assert_eq!(preview.missing_executable_count, 1);
-        confirm_import(&destination_database, &destination_root, &preview.import_id).unwrap();
+        confirm_import(
+            &destination_database,
+            &destination_root,
+            &preview.import_id,
+            |_| {},
+        )
+        .unwrap();
         drop(destination_database);
 
         let applied = apply_pending_import(&destination_root).unwrap().unwrap();
@@ -1340,7 +1433,15 @@ mod tests {
         let temporary = TestDirectory::new("backup-checksum");
         let (source_root, source_database, _) = create_data_root(&temporary.0, "source");
         let backup_path = temporary.0.join("valid.eptbackup");
-        export_backup(&source_database, &source_root, &backup_path, false, true).unwrap();
+        export_backup(
+            &source_database,
+            &source_root,
+            &backup_path,
+            false,
+            true,
+            |_| {},
+        )
+        .unwrap();
         let tampered_path = temporary.0.join("tampered.eptbackup");
         rewrite_test_archive(&backup_path, &tampered_path, None, true);
         let (current_root, current_database, current_game) =
@@ -1358,7 +1459,15 @@ mod tests {
         let temporary = TestDirectory::new("backup-newer-schema");
         let (source_root, source_database, _) = create_data_root(&temporary.0, "source");
         let backup_path = temporary.0.join("valid.eptbackup");
-        export_backup(&source_database, &source_root, &backup_path, false, true).unwrap();
+        export_backup(
+            &source_database,
+            &source_root,
+            &backup_path,
+            false,
+            true,
+            |_| {},
+        )
+        .unwrap();
         let newer_path = temporary.0.join("newer.eptbackup");
         rewrite_test_archive(
             &backup_path,
@@ -1381,7 +1490,15 @@ mod tests {
         fs::create_dir_all(source_root.join("screenshots")).unwrap();
         let source_database = Database::open(&source_root.join(DATABASE_PATH)).unwrap();
         let backup_path = temporary.0.join("empty.eptbackup");
-        export_backup(&source_database, &source_root, &backup_path, false, true).unwrap();
+        export_backup(
+            &source_database,
+            &source_root,
+            &backup_path,
+            false,
+            true,
+            |_| {},
+        )
+        .unwrap();
         let (current_root, current_database, _) = create_data_root(&temporary.0, "current");
 
         let preview = prepare_import(&current_database, &current_root, &backup_path).unwrap();
@@ -1397,8 +1514,15 @@ mod tests {
         let (source_root, source_database, _) = create_data_root(&temporary.0, "source");
         let backup_path = temporary.0.join("without-screenshots.eptbackup");
 
-        let exported =
-            export_backup(&source_database, &source_root, &backup_path, false, false).unwrap();
+        let exported = export_backup(
+            &source_database,
+            &source_root,
+            &backup_path,
+            false,
+            false,
+            |_| {},
+        )
+        .unwrap();
 
         assert!(!exported.includes_screenshots);
         assert_eq!(exported.summary.screenshot_count, 0);
@@ -1448,7 +1572,15 @@ mod tests {
         fs::create_dir_all(source_root.join("screenshots")).unwrap();
         let source_database = Database::open(&source_root.join(DATABASE_PATH)).unwrap();
         let current_backup = temporary.0.join("current.eptbackup");
-        export_backup(&source_database, &source_root, &current_backup, false, true).unwrap();
+        export_backup(
+            &source_database,
+            &source_root,
+            &current_backup,
+            false,
+            true,
+            |_| {},
+        )
+        .unwrap();
         let older_backup = temporary.0.join("schema-4.eptbackup");
         rewrite_empty_archive_as_schema_4(&current_backup, &older_backup, &temporary.0);
         let (current_root, current_database, _) = create_data_root(&temporary.0, "current");

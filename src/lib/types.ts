@@ -181,6 +181,13 @@ export interface BackupExportResult {
   file_size: number;
 }
 
+export interface BackupExportProgress {
+  phase: 'preparing' | 'archiving' | 'finalizing';
+  processed_bytes: number;
+  total_bytes: number;
+  file_count: number;
+}
+
 export interface BackupImportPreview {
   import_id: string;
   exported_at: string;
