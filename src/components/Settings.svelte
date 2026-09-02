@@ -36,7 +36,8 @@
     backupMessage = '',
     backupError = '',
     importConfirmed = false,
-    destroyed = false;
+    destroyed = false,
+    includeScreenshots = true;
   let importPreview: BackupImportPreview | null = null;
   let availableUpdate: Awaited<ReturnType<typeof check>> = null;
   let previewUpdateAvailable = false;
@@ -268,9 +269,12 @@
     backupMessage = 'バックアップを作成しています…';
     backupError = '';
     try {
-      const result = await api.exportBackup(destination);
+      const result = await api.exportBackup(destination, includeScreenshots);
       if (destroyed) return;
       backupMessage = `バックアップを作成しました（${formatBytes(result.file_size)}）。`;
+      if (!result.includes_screenshots) {
+        backupMessage += ' スクリーンショットは除外しました。';
+      }
       if (result.missing_media_count > 0) {
         backupMessage += ` 見つからなかった画像 ${result.missing_media_count} 件は含まれていません。`;
       }
@@ -466,6 +470,10 @@
       <span class="setting-label">データの移行</span>
       <p class="hint">ゲーム、プレイ履歴、設定、画像を1つのファイルに保存します。</p>
     </div>
+    <label class="check backup-option">
+      <input type="checkbox" bind:checked={includeScreenshots} disabled={backupBusy} />
+      スクリーンショットを含める
+    </label>
     <div class="backup-setting-actions">
       <button type="button" disabled={backupBusy || trackingActive} onclick={exportData}>
         {backupBusy && !importPreview ? '処理中…' : 'エクスポート'}
@@ -523,7 +531,11 @@
         <div>
           <dt>スクリーンショット</dt>
           <dd>{importPreview.current_summary.screenshot_count} 件</dd>
-          <dd>{importPreview.summary.screenshot_count} 件</dd>
+          <dd>
+            {importPreview.summary.screenshot_count} 件{importPreview.includes_screenshots
+              ? ''
+              : '（除外）'}
+          </dd>
         </div>
         <div>
           <dt>サムネイル</dt>
@@ -535,6 +547,9 @@
         作成日時: {new Date(importPreview.exported_at).toLocaleString('ja-JP')} ／ アプリ {importPreview.app_version}
         ／ {formatBytes(importPreview.file_size)}
       </p>
+      {#if !importPreview.includes_screenshots}<p class="backup-warning">
+          このバックアップにはスクリーンショットが含まれていません。置き換えると、現在のスクリーンショットも削除されます。
+        </p>{/if}
       {#if importPreview.missing_executable_count > 0}<p class="backup-warning">
           登録済みの実行ファイルのうち {importPreview.missing_executable_count}
           件はこのPCで見つかりません。移行後にゲーム詳細から登録し直してください。

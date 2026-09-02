@@ -58,7 +58,7 @@ Screenshotの文字起こしは同梱したPP-OCRv5 mobileの検出・認識mode
 
 ## Backup / restore
 
-設定画面から作成する`.eptbackup`は、SQLiteの一貫したsnapshot、参照中のthumbnailとscreenshot、format/schema version、各fileのSHA-256を含むZIP archiveです。archive作成はfileを読みながらchecksum計算と圧縮を1 passで行います。snapshot内のmedia pathはarchive相対pathへ変換し、import先を検証した後で新しい`%LOCALAPPDATA%`配下の絶対pathへ書き換えます。game executable pathは保持しますが、game本体のfileは含めません。
+設定画面から作成する`.eptbackup`は、SQLiteの一貫したsnapshot、参照中のthumbnailと任意のscreenshot、format/schema version、各fileのSHA-256を含むZIP archiveです。screenshotを除外した場合はsnapshot側の`game_screenshots`も空にし、その選択をmanifestへ記録します。archive作成はfileを読みながらchecksum計算と圧縮を1 passで行います。snapshot内のmedia pathはarchive相対pathへ変換し、import先を検証した後で新しい`%LOCALAPPDATA%`配下の絶対pathへ書き換えます。game executable pathは保持しますが、game本体のfileは含めません。
 
 Importはmergeではなく全置換です。archive path、重複entry、symlink、size、checksum、SQLite integrity/foreign key、schema versionをactive dataへ触れる前にstaging領域で検証します。確定時に現在のdataを`backups\`へ自動exportし、pending markerを書いて再起動します。次回起動時のdata directory切替に失敗した場合や切替中に中断された場合はrollback directoryから元のdataへ戻します。対応済みの古いschemaはstaging内でmigrationし、新しいschema versionのbackupは対応versionへappを更新するまで拒否します。移行元の設定は復元しますが、`last_seen`とskip中のupdate versionは移行先向けにresetし、autostartは移行先のWindowsへ再適用します。
 
