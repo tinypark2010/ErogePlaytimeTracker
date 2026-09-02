@@ -164,3 +164,34 @@ export interface TrackingStatus {
     phase: 'starting' | 'foreground' | 'background' | 'window_transition';
   }>;
 }
+
+export interface BackupDataSummary {
+  game_count: number;
+  session_count: number;
+  timestamp_count: number;
+  screenshot_count: number;
+  thumbnail_count: number;
+}
+
+export interface BackupExportResult {
+  destination: string;
+  summary: BackupDataSummary;
+  missing_media_count: number;
+  file_size: number;
+}
+
+export interface BackupImportPreview {
+  import_id: string;
+  exported_at: string;
+  app_version: string;
+  summary: BackupDataSummary;
+  current_summary: BackupDataSummary;
+  missing_executable_count: number;
+  file_size: number;
+}
+
+export interface BackupImportNotice {
+  success: boolean;
+  message: string;
+  auto_backup_path: string;
+}

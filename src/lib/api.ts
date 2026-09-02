@@ -2,6 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { normalizeCommandError } from './errors';
 import type {
   BackgroundInterval,
+  BackupExportResult,
+  BackupImportNotice,
+  BackupImportPreview,
   GameDetail,
   GameSummary,
   GameTimestamp,
@@ -106,5 +109,12 @@ export const api = {
     command<void>('validate_screenshot_hotkey', { hotkey }),
   suspendScreenshotHotkey: () => command<void>('suspend_screenshot_hotkey'),
   resumeScreenshotHotkey: () => command<void>('resume_screenshot_hotkey'),
+  exportBackup: (destination: string) =>
+    command<BackupExportResult>('export_backup', { destination }),
+  prepareBackupImport: (source: string) =>
+    command<BackupImportPreview>('prepare_backup_import', { source }),
+  confirmBackupImport: (importId: string) => command<void>('confirm_backup_import', { importId }),
+  cancelBackupImport: (importId: string) => command<void>('cancel_backup_import', { importId }),
+  takeBackupImportNotice: () => command<BackupImportNotice | null>('take_backup_import_notice'),
   status: () => command<TrackingStatus>('get_tracking_status'),
 };

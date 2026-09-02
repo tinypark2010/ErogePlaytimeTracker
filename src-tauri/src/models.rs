@@ -223,3 +223,38 @@ pub struct TrackingGameStatus {
 pub struct TrackingStatus {
     pub games: Vec<TrackingGameStatus>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupDataSummary {
+    pub game_count: i64,
+    pub session_count: i64,
+    pub timestamp_count: i64,
+    pub screenshot_count: i64,
+    pub thumbnail_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BackupExportResult {
+    pub destination: String,
+    pub summary: BackupDataSummary,
+    pub missing_media_count: i64,
+    pub file_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupImportPreview {
+    pub import_id: String,
+    pub exported_at: String,
+    pub app_version: String,
+    pub summary: BackupDataSummary,
+    pub current_summary: BackupDataSummary,
+    pub missing_executable_count: i64,
+    pub file_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupImportNotice {
+    pub success: bool,
+    pub message: String,
+    pub auto_backup_path: String,
+}

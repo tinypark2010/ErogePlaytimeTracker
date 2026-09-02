@@ -64,6 +64,34 @@ main {
   margin: auto;
   padding: 2rem;
 }
+.app-notice {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #65bc865c;
+  border-radius: 8px;
+  background: #183322;
+}
+.app-notice p {
+  margin: 0.25rem 0;
+}
+.app-notice small {
+  overflow-wrap: anywhere;
+}
+.app-notice > button {
+  align-self: flex-start;
+  padding: 0.15rem 0.45rem;
+  border: 0;
+  background: transparent;
+  font-size: 1.25rem;
+}
+.app-notice.warning {
+  color: #ffd8b5;
+  border-color: #c4894e66;
+  background: #4b2f1d;
+}
 .toolbar,
 .row,
 .actions,
@@ -1437,6 +1465,79 @@ small {
 .update-setting progress {
   width: 100%;
 }
+.backup-setting {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid #ffffff1c;
+}
+.backup-setting p {
+  margin: 0;
+}
+.backup-setting-actions {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+.backup-setting-feedback {
+  min-height: 1.3rem;
+}
+.backup-import-modal {
+  z-index: 20;
+  background: #08070dc7;
+}
+.backup-import-dialog {
+  width: min(620px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  margin: 0;
+  padding: 1.6rem;
+  text-align: center;
+  box-shadow: 0 18px 60px #000b;
+}
+.backup-import-dialog h2 {
+  margin: 0.75rem 0 0.5rem;
+}
+.backup-import-dialog > p {
+  line-height: 1.6;
+}
+.backup-import-summary {
+  margin: 1.2rem 0;
+  border: 1px solid #ffffff1c;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.backup-import-summary > div {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.2fr) repeat(2, minmax(90px, 1fr));
+}
+.backup-import-summary > div + div {
+  border-top: 1px solid #ffffff14;
+}
+.backup-import-summary dt,
+.backup-import-summary dd {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  text-align: right;
+}
+.backup-import-summary dt {
+  text-align: left;
+}
+.backup-import-summary > div:first-child {
+  color: #aaa3b4;
+  background: #ffffff08;
+}
+.backup-warning {
+  padding: 0.75rem;
+  border-radius: 6px;
+  color: #ffd8b5;
+  background: #5a351f;
+  text-align: left;
+}
+.backup-import-dialog .confirm-actions {
+  margin-top: 1.4rem;
+}
 .hotkey-recorder {
   display: flex;
   align-items: center;
@@ -1693,6 +1794,29 @@ button.primary:disabled:hover {
 :root[data-theme]:not([data-theme='dark']) .card p,
 :root[data-theme]:not([data-theme='dark']) .tracking-status {
   color: #706978;
+}
+:root[data-theme]:not([data-theme='dark']) .app-notice {
+  color: #274b35;
+  border-color: #65a97d66;
+  background: #e8f7ed;
+}
+:root[data-theme]:not([data-theme='dark']) .app-notice.warning {
+  color: #68411f;
+  border-color: #c4894e66;
+  background: #fff0dd;
+}
+:root[data-theme]:not([data-theme='dark']) .backup-setting,
+:root[data-theme]:not([data-theme='dark']) .backup-import-summary,
+:root[data-theme]:not([data-theme='dark']) .backup-import-summary > div + div {
+  border-color: #00000018;
+}
+:root[data-theme]:not([data-theme='dark']) .backup-import-summary > div:first-child {
+  color: #706978;
+  background: #00000008;
+}
+:root[data-theme]:not([data-theme='dark']) .backup-warning {
+  color: #68411f;
+  background: #fff0dd;
 }
 :root[data-theme]:not([data-theme='dark']) .detail-backdrop {
   opacity: 0.24;

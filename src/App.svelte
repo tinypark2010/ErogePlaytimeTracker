@@ -9,7 +9,7 @@
   import UpdatePrompt from './components/UpdatePrompt.svelte';
   import { api } from './lib/api';
   import { trackingStatusGroups, trackingStatusText } from './lib/trackingStatus';
-  import type { Theme, TrackingStatus } from './lib/types';
+  import type { BackupImportNotice, Theme, TrackingStatus } from './lib/types';
   type Page = 'library' | 'statistics' | 'game' | 'add' | 'settings';
   let page: Page = 'library',
     gameId = 0,
@@ -22,7 +22,8 @@
     settingsDirty = false,
     pendingPage: Page | null = null,
     pendingReload = false,
-    gameReturnPage: 'library' | 'statistics' = 'library';
+    gameReturnPage: 'library' | 'statistics' = 'library',
+    importNotice: BackupImportNotice | null = null;
   function goTo(next: Page, shouldReload = false) {
     if (page === 'settings' && next !== 'settings' && settingsDirty) {
       pendingPage = next;
@@ -61,6 +62,10 @@
       settingsLoaded = true;
     });
     api.status().then(updateStatus);
+    api
+      .takeBackupImportNotice()
+      .then((notice) => (importNotice = notice))
+      .catch(() => {});
     const timer = setInterval(() => api.status().then(updateStatus), 3000);
     let off = () => {};
     listen<TrackingStatus>('tracking-status', (e) => updateStatus(e.payload)).then(
@@ -97,6 +102,22 @@
   </div>
 </header>
 <main>
+  {#if importNotice}<div class="app-notice" class:warning={!importNotice.success} role="status">
+      <div>
+        <strong
+          >{importNotice.success
+            ? 'データ移行が完了しました'
+            : 'データ移行を取り消しました'}</strong
+        >
+        <p>{importNotice.message}</p>
+        <small title={importNotice.auto_backup_path}
+          >自動バックアップ: {importNotice.auto_backup_path}</small
+        >
+      </div>
+      <button type="button" aria-label="通知を閉じる" onclick={() => (importNotice = null)}
+        >×</button
+      >
+    </div>{/if}
   {#if page === 'library'}<Library
       {refresh}
       {openGame}
