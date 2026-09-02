@@ -237,6 +237,7 @@ pub struct BackupDataSummary {
 pub struct BackupExportResult {
     pub destination: String,
     pub summary: BackupDataSummary,
+    pub includes_screenshots: bool,
     pub missing_media_count: i64,
     pub file_size: u64,
 }
@@ -248,6 +249,7 @@ pub struct BackupImportPreview {
     pub app_version: String,
     pub summary: BackupDataSummary,
     pub current_summary: BackupDataSummary,
+    pub includes_screenshots: bool,
     pub missing_executable_count: i64,
     pub file_size: u64,
 }

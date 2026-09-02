@@ -1480,6 +1480,9 @@ small {
   gap: 0.65rem;
   flex-wrap: wrap;
 }
+.backup-setting .backup-option {
+  margin: 0;
+}
 .backup-setting-feedback {
   min-height: 1.3rem;
 }

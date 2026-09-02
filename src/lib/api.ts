@@ -109,8 +109,8 @@ export const api = {
     command<void>('validate_screenshot_hotkey', { hotkey }),
   suspendScreenshotHotkey: () => command<void>('suspend_screenshot_hotkey'),
   resumeScreenshotHotkey: () => command<void>('resume_screenshot_hotkey'),
-  exportBackup: (destination: string) =>
-    command<BackupExportResult>('export_backup', { destination }),
+  exportBackup: (destination: string, includeScreenshots: boolean) =>
+    command<BackupExportResult>('export_backup', { destination, includeScreenshots }),
   prepareBackupImport: (source: string) =>
     command<BackupImportPreview>('prepare_backup_import', { source }),
   confirmBackupImport: (importId: string) => command<void>('confirm_backup_import', { importId }),

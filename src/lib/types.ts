@@ -176,6 +176,7 @@ export interface BackupDataSummary {
 export interface BackupExportResult {
   destination: string;
   summary: BackupDataSummary;
+  includes_screenshots: boolean;
   missing_media_count: number;
   file_size: number;
 }
@@ -186,6 +187,7 @@ export interface BackupImportPreview {
   app_version: string;
   summary: BackupDataSummary;
   current_summary: BackupDataSummary;
+  includes_screenshots: boolean;
   missing_executable_count: number;
   file_size: number;
 }

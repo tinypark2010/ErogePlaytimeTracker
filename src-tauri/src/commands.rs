@@ -507,6 +507,7 @@ fn backup_operation_error(error: anyhow::Error, message: &str) -> String {
 pub async fn export_backup(
     state: State<'_, AppState>,
     destination: String,
+    include_screenshots: bool,
 ) -> Cmd<BackupExportResult> {
     ensure_backup_idle(&state)?;
     let database = state.db.clone();
@@ -527,6 +528,7 @@ pub async fn export_backup(
             &data_root,
             std::path::Path::new(destination.trim()),
             false,
+            include_screenshots,
         )
         .map_err(|error| backup_operation_error(error, "バックアップを作成できませんでした。"))
     })

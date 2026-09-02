@@ -33,6 +33,8 @@ struct BackupManifest {
     app_version: String,
     schema_version: i64,
     exported_at: String,
+    #[serde(default = "default_true")]
+    includes_screenshots: bool,
     summary: BackupDataSummary,
     files: Vec<ManifestFile>,
 }
@@ -81,6 +83,7 @@ pub(crate) fn export_backup(
     data_root: &Path,
     requested_destination: &Path,
     allow_inside_data_root: bool,
+    includes_screenshots: bool,
 ) -> Result<BackupExportResult> {
     let destination = backup_destination(requested_destination);
     let parent = destination
@@ -106,7 +109,7 @@ pub(crate) fn export_backup(
     let result = (|| {
         let snapshot = work.join(DATABASE_PATH);
         database.snapshot_to(&snapshot)?;
-        let prepared = prepare_snapshot_for_export(&snapshot, data_root)?;
+        let prepared = prepare_snapshot_for_export(&snapshot, data_root, includes_screenshots)?;
 
         let mut files = Vec::with_capacity(prepared.media.len() + 1);
         files.push(export_file(DATABASE_PATH.into(), snapshot)?);
@@ -120,6 +123,7 @@ pub(crate) fn export_backup(
             app_version: env!("CARGO_PKG_VERSION").into(),
             schema_version: CURRENT_SCHEMA_VERSION,
             exported_at: Utc::now().to_rfc3339(),
+            includes_screenshots,
             summary: prepared.summary.clone(),
             files: Vec::with_capacity(files.len()),
         };
@@ -129,6 +133,7 @@ pub(crate) fn export_backup(
         Ok(BackupExportResult {
             destination: destination.to_string_lossy().into_owned(),
             summary: prepared.summary,
+            includes_screenshots,
             missing_media_count: prepared.missing_media_count,
             file_size,
         })
@@ -191,6 +196,10 @@ pub(crate) fn prepare_import(
         validate_database(&connection)?;
         let summary = database_summary(&connection)?;
         ensure!(
+            manifest.includes_screenshots || summary.screenshot_count == 0,
+            "スクリーンショット除外の指定とデータが一致しません"
+        );
+        ensure!(
             summary == manifest.summary,
             "バックアップ内のデータ件数が一致しません"
         );
@@ -204,6 +213,7 @@ pub(crate) fn prepare_import(
             app_version: manifest.app_version,
             summary,
             current_summary: database.backup_summary()?,
+            includes_screenshots: manifest.includes_screenshots,
             missing_executable_count,
             file_size,
         };
@@ -240,7 +250,7 @@ pub(crate) fn confirm_import(database: &Database, data_root: &Path, import_id: &
         Utc::now().format("%Y%m%d-%H%M%S-%3f")
     );
     let auto_backup = backups.join(filename);
-    export_backup(database, data_root, &auto_backup, true)?;
+    export_backup(database, data_root, &auto_backup, true, true)?;
     write_json_atomic(
         &data_root.join(PENDING_IMPORT_FILE),
         &PendingImport {
@@ -408,7 +418,11 @@ pub(crate) fn take_import_notice(data_root: &Path) -> Result<Option<BackupImport
     Ok(Some(notice))
 }
 
-fn prepare_snapshot_for_export(database_path: &Path, data_root: &Path) -> Result<PreparedSnapshot> {
+fn prepare_snapshot_for_export(
+    database_path: &Path,
+    data_root: &Path,
+    includes_screenshots: bool,
+) -> Result<PreparedSnapshot> {
     let mut connection = Connection::open(database_path)?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
     let transaction = connection.transaction()?;
@@ -422,7 +436,7 @@ fn prepare_snapshot_for_export(database_path: &Path, data_root: &Path) -> Result
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
     };
-    let screenshot_rows = {
+    let screenshot_rows = if includes_screenshots {
         let mut statement =
             transaction.prepare("SELECT id, game_id, path FROM game_screenshots ORDER BY id")?;
         statement
@@ -434,6 +448,9 @@ fn prepare_snapshot_for_export(database_path: &Path, data_root: &Path) -> Result
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
+    } else {
+        transaction.execute("DELETE FROM game_screenshots", [])?;
+        Vec::new()
     };
 
     let mut media = Vec::new();
@@ -757,6 +774,10 @@ fn write_archive(path: &Path, manifest: &mut BackupManifest, files: &[ExportFile
 fn export_file(path: String, source: PathBuf) -> Result<ExportFile> {
     let size = source.metadata()?.len();
     Ok(ExportFile { path, size, source })
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn validate_database(connection: &Connection) -> Result<()> {
@@ -1247,7 +1268,8 @@ mod tests {
             .set_setting("last_seen", "2020-01-01T00:00:00Z")
             .unwrap();
         let backup_path = temporary.0.join("migration.eptbackup");
-        let exported = export_backup(&source_database, &source_root, &backup_path, false).unwrap();
+        let exported =
+            export_backup(&source_database, &source_root, &backup_path, false, true).unwrap();
         assert_eq!(exported.summary.game_count, 1);
         assert_eq!(exported.summary.thumbnail_count, 1);
         assert_eq!(exported.summary.screenshot_count, 1);
@@ -1318,7 +1340,7 @@ mod tests {
         let temporary = TestDirectory::new("backup-checksum");
         let (source_root, source_database, _) = create_data_root(&temporary.0, "source");
         let backup_path = temporary.0.join("valid.eptbackup");
-        export_backup(&source_database, &source_root, &backup_path, false).unwrap();
+        export_backup(&source_database, &source_root, &backup_path, false, true).unwrap();
         let tampered_path = temporary.0.join("tampered.eptbackup");
         rewrite_test_archive(&backup_path, &tampered_path, None, true);
         let (current_root, current_database, current_game) =
@@ -1336,7 +1358,7 @@ mod tests {
         let temporary = TestDirectory::new("backup-newer-schema");
         let (source_root, source_database, _) = create_data_root(&temporary.0, "source");
         let backup_path = temporary.0.join("valid.eptbackup");
-        export_backup(&source_database, &source_root, &backup_path, false).unwrap();
+        export_backup(&source_database, &source_root, &backup_path, false, true).unwrap();
         let newer_path = temporary.0.join("newer.eptbackup");
         rewrite_test_archive(
             &backup_path,
@@ -1359,7 +1381,7 @@ mod tests {
         fs::create_dir_all(source_root.join("screenshots")).unwrap();
         let source_database = Database::open(&source_root.join(DATABASE_PATH)).unwrap();
         let backup_path = temporary.0.join("empty.eptbackup");
-        export_backup(&source_database, &source_root, &backup_path, false).unwrap();
+        export_backup(&source_database, &source_root, &backup_path, false, true).unwrap();
         let (current_root, current_database, _) = create_data_root(&temporary.0, "current");
 
         let preview = prepare_import(&current_database, &current_root, &backup_path).unwrap();
@@ -1370,6 +1392,55 @@ mod tests {
     }
 
     #[test]
+    fn export_can_intentionally_exclude_screenshots() {
+        let temporary = TestDirectory::new("backup-without-screenshots");
+        let (source_root, source_database, _) = create_data_root(&temporary.0, "source");
+        let backup_path = temporary.0.join("without-screenshots.eptbackup");
+
+        let exported =
+            export_backup(&source_database, &source_root, &backup_path, false, false).unwrap();
+
+        assert!(!exported.includes_screenshots);
+        assert_eq!(exported.summary.screenshot_count, 0);
+        assert_eq!(exported.summary.thumbnail_count, 1);
+        let mut archive = ZipArchive::new(File::open(&backup_path).unwrap()).unwrap();
+        assert!((0..archive.len()).all(|index| {
+            !archive
+                .by_index(index)
+                .unwrap()
+                .name()
+                .starts_with("screenshots/")
+        }));
+        let (current_root, current_database, _) = create_data_root(&temporary.0, "current");
+        let preview = prepare_import(&current_database, &current_root, &backup_path).unwrap();
+        assert!(!preview.includes_screenshots);
+        assert_eq!(preview.summary.screenshot_count, 0);
+        cancel_import(&current_root, &preview.import_id).unwrap();
+    }
+
+    #[test]
+    fn version_one_manifests_without_the_screenshot_option_remain_compatible() {
+        let manifest: BackupManifest = serde_json::from_value(serde_json::json!({
+            "format": BACKUP_FORMAT,
+            "format_version": BACKUP_FORMAT_VERSION,
+            "app_version": "0.1.10",
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "exported_at": "2026-09-02T00:00:00Z",
+            "summary": {
+                "game_count": 0,
+                "session_count": 0,
+                "timestamp_count": 0,
+                "screenshot_count": 0,
+                "thumbnail_count": 0
+            },
+            "files": []
+        }))
+        .unwrap();
+
+        assert!(manifest.includes_screenshots);
+    }
+
+    #[test]
     fn import_migrates_an_older_supported_schema_in_staging() {
         let temporary = TestDirectory::new("backup-old-schema");
         let source_root = temporary.0.join("source");
@@ -1377,7 +1448,7 @@ mod tests {
         fs::create_dir_all(source_root.join("screenshots")).unwrap();
         let source_database = Database::open(&source_root.join(DATABASE_PATH)).unwrap();
         let current_backup = temporary.0.join("current.eptbackup");
-        export_backup(&source_database, &source_root, &current_backup, false).unwrap();
+        export_backup(&source_database, &source_root, &current_backup, false, true).unwrap();
         let older_backup = temporary.0.join("schema-4.eptbackup");
         rewrite_empty_archive_as_schema_4(&current_backup, &older_backup, &temporary.0);
         let (current_root, current_database, _) = create_data_root(&temporary.0, "current");
