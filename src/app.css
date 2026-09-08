@@ -2729,6 +2729,7 @@ button.primary:disabled:hover {
   gap: 0.65rem;
 }
 .screenshot-ocr-actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
   margin-top: 0.75rem;
 }

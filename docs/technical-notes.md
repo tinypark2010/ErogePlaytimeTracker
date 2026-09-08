@@ -54,7 +54,7 @@ dataは`%LOCALAPPDATA%\ErogePlaytimeTracker\`配下に保存します。
 - log: Tauri log pluginの標準app log directory
 
 durationはDBへ重複保存せず、sessionとintervalのtimestampからquery時に算出します。
-Screenshotの文字起こしは同梱したPP-OCRv5 mobileの検出・認識modelを`paddleocr_rs_onnx`とONNX Runtimeでon-demand実行します。modelは初回実行時にprocess内で初期化し、その後は再利用します。UIで指定した範囲はnormalized coordinatesとしてcommandへ渡し、Rust側で元画像からcropします。画像や認識結果をnetworkへ送信せず、認識結果はDBへ保存しません。
+Screenshotの文字起こしは同梱したPP-OCRv5 mobileの検出・認識modelを`paddleocr_rs_onnx`とONNX Runtimeでon-demand実行します。modelは初回実行時にprocess内で初期化し、その後は再利用します。UIで指定した範囲はnormalized coordinatesとしてcommandへ渡し、Rust側で元画像からcropします。文字起こし処理では画像や認識結果をnetworkへ送信せず、認識結果はDBへ保存しません。「Googleで検索」の明示操作時には認識結果の全文をURLのquery parameterへencodeし、既存の`open_external_url` commandを通じて既定のブラウザでGoogle検索を開きます。このとき認識結果は検索語としてGoogleへ送信されます。
 
 ## Backup / restore
 

@@ -730,6 +730,8 @@ The core tracker is local.
 
 Network access should occur only for metadata/thumbnail retrieval or other explicitly networked features.
 
+Screenshot OCR runs locally. When the user chooses Google search, open a Google search URL containing the full recognized text in the default browser. Only this explicit search action sends recognized text to Google; screenshot images are not uploaded.
+
 Do not upload play history.
 
 Do not require an account.
