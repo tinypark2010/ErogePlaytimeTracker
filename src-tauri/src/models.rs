@@ -163,6 +163,7 @@ pub struct AppSettings {
     pub close_to_tray: bool,
     pub theme: String,
     pub screenshot_hotkey: String,
+    pub ocr_search_hotkey: String,
 }
 impl Default for AppSettings {
     fn default() -> Self {
@@ -173,6 +174,7 @@ impl Default for AppSettings {
             close_to_tray: true,
             theme: "dark".into(),
             screenshot_hotkey: String::new(),
+            ocr_search_hotkey: String::new(),
         }
     }
 }
@@ -189,6 +191,7 @@ mod settings_tests {
 
         assert!(settings.auto_check_updates);
         assert_eq!(settings.skipped_update_version, None);
+        assert!(settings.ocr_search_hotkey.is_empty());
     }
 }
 #[derive(Debug, Clone, Serialize)]

@@ -1,149 +1,9 @@
 use crate::{database::Database, tracking::TrackingService};
 use chrono::Utc;
-use std::{
-    fs::File,
-    io::BufWriter,
-    path::{Path, PathBuf},
-    sync::mpsc::{self, Sender},
-    thread,
-    time::Duration,
-};
+use std::{fs::File, io::BufWriter, path::Path};
 use tauri::{AppHandle, Emitter};
 
-#[derive(Clone)]
-pub struct ScreenshotService {
-    requests: Sender<HotkeyRequest>,
-}
-
-enum HotkeyRequest {
-    Check(String, Sender<Result<(), String>>),
-    Update(String, Sender<Result<(), String>>),
-}
-
-impl ScreenshotService {
-    pub fn start(
-        app: AppHandle,
-        db: Database,
-        tracker: TrackingService,
-        root: PathBuf,
-        hotkey: String,
-    ) -> Self {
-        let (requests, receiver) = mpsc::channel::<HotkeyRequest>();
-        thread::spawn(move || {
-            #[cfg(windows)]
-            {
-                use windows::Win32::UI::WindowsAndMessaging::{
-                    DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage, WM_HOTKEY,
-                };
-                let mut current = hotkey;
-                let mut registered = if current.trim().is_empty() {
-                    false
-                } else {
-                    match register_hotkey(&current, 1) {
-                        Ok(()) => true,
-                        Err(e) => {
-                            log::error!("screenshot hotkey registration failed: {e:#}");
-                            let _ = app.emit(
-                                "screenshot-error",
-                                "スクリーンショットキーを登録できませんでした。設定を確認してください。",
-                            );
-                            false
-                        }
-                    }
-                };
-                loop {
-                    while let Ok(request) = receiver.try_recv() {
-                        match request {
-                            HotkeyRequest::Check(candidate, response) => {
-                                let result = if (candidate == current && registered)
-                                    || candidate.trim().is_empty()
-                                {
-                                    Ok(())
-                                } else {
-                                    register_hotkey(&candidate, 2).map(|()| unsafe {
-                                        let _ = windows::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(None, 2);
-                                    })
-                                };
-                                let _ = response.send(result.map_err(|e| e.to_string()));
-                            }
-                            HotkeyRequest::Update(candidate, response) => {
-                                if candidate == current
-                                    && (registered || candidate.trim().is_empty())
-                                {
-                                    let _ = response.send(Ok(()));
-                                    continue;
-                                }
-                                if registered {
-                                    unsafe {
-                                        let _ = windows::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(None, 1);
-                                    }
-                                }
-                                let result = if candidate.trim().is_empty() {
-                                    Ok(())
-                                } else {
-                                    register_hotkey(&candidate, 1)
-                                };
-                                match result {
-                                    Ok(()) => {
-                                        current = candidate;
-                                        registered = !current.trim().is_empty();
-                                        let _ = response.send(Ok(()));
-                                    }
-                                    Err(e) => {
-                                        registered = !current.trim().is_empty()
-                                            && register_hotkey(&current, 1).is_ok();
-                                        let _ = response.send(Err(e.to_string()));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    let mut message = MSG::default();
-                    while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() } {
-                        if message.message == WM_HOTKEY {
-                            if let Err(e) = capture_focused(&app, &db, &tracker, &root) {
-                                log::warn!("screenshot capture skipped or failed: {e:#}");
-                                let _ = app.emit("screenshot-error", capture_error_message(&e));
-                            }
-                        } else {
-                            unsafe {
-                                let _ = TranslateMessage(&message);
-                                DispatchMessageW(&message);
-                            }
-                        }
-                    }
-                    thread::sleep(Duration::from_millis(25));
-                }
-            }
-            #[cfg(not(windows))]
-            let _ = (app, db, tracker, root, hotkey, receiver);
-        });
-        Self { requests }
-    }
-
-    pub fn set_hotkey(&self, hotkey: String) -> anyhow::Result<()> {
-        validate_hotkey(&hotkey)?;
-        self.request(|response| HotkeyRequest::Update(hotkey, response))
-    }
-
-    pub fn check_hotkey(&self, hotkey: String) -> anyhow::Result<()> {
-        validate_hotkey(&hotkey)?;
-        self.request(|response| HotkeyRequest::Check(hotkey, response))
-    }
-
-    fn request(
-        &self,
-        make: impl FnOnce(Sender<Result<(), String>>) -> HotkeyRequest,
-    ) -> anyhow::Result<()> {
-        let (response, receiver) = mpsc::channel();
-        self.requests.send(make(response))?;
-        receiver
-            .recv_timeout(Duration::from_secs(2))?
-            .map_err(anyhow::Error::msg)
-    }
-}
-
-fn capture_error_message(error: &anyhow::Error) -> &'static str {
+pub(crate) fn capture_error_message(error: &anyhow::Error) -> &'static str {
     if error.to_string() == "フォアグラウンドで計測中のゲームがありません" {
         "フォアグラウンドで計測中のゲームがありません。"
     } else {
@@ -152,98 +12,76 @@ fn capture_error_message(error: &anyhow::Error) -> &'static str {
 }
 
 #[cfg(windows)]
-fn register_hotkey(value: &str, id: i32) -> anyhow::Result<()> {
-    let (mods, key) = parse_hotkey(value)?;
-    unsafe { windows::Win32::UI::Input::KeyboardAndMouse::RegisterHotKey(None, id, mods, key) }
-        .map_err(|_| anyhow::anyhow!("このキーは別のアプリで使用されています"))
-}
-
-pub fn validate_hotkey(value: &str) -> anyhow::Result<()> {
-    if value.trim().is_empty() {
-        return Ok(());
-    }
-    #[cfg(windows)]
-    {
-        parse_hotkey(value).map(|_| ())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = value;
-        Ok(())
-    }
+pub struct CapturedGame {
+    pub hwnd: windows::Win32::Foundation::HWND,
+    pub origin: windows::Win32::Foundation::POINT,
+    pub image: image::RgbaImage,
+    game_id: i64,
+    session_id: i64,
 }
 
 #[cfg(windows)]
-fn parse_hotkey(
-    value: &str,
-) -> anyhow::Result<(
-    windows::Win32::UI::Input::KeyboardAndMouse::HOT_KEY_MODIFIERS,
-    u32,
-)> {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+pub fn capture_game(tracker: &TrackingService) -> anyhow::Result<CapturedGame> {
+    use windows::Win32::{
+        Foundation::{POINT, RECT},
+        Graphics::Gdi::ClientToScreen,
+        UI::WindowsAndMessaging::{GetClientRect, GetForegroundWindow},
     };
-    let parts: Vec<_> = value
-        .split('+')
-        .map(|part| part.trim().to_ascii_uppercase())
-        .filter(|part| !part.is_empty())
-        .collect();
+    let hwnd = unsafe { GetForegroundWindow() };
+    let (game_id, session_id) = tracker
+        .focused_game()
+        .ok_or_else(|| anyhow::anyhow!("フォアグラウンドで計測中のゲームがありません"))?;
     anyhow::ensure!(
-        !parts.is_empty(),
-        "スクリーンショットキーを入力してください"
+        !hwnd.is_invalid() && hwnd == unsafe { GetForegroundWindow() },
+        "フォアグラウンドで計測中のゲームがありません"
     );
-    let mut mods = MOD_NOREPEAT;
-    for modifier in &parts[..parts.len() - 1] {
-        mods |= match modifier.as_str() {
-            "CTRL" | "CONTROL" => MOD_CONTROL,
-            "ALT" => MOD_ALT,
-            "SHIFT" => MOD_SHIFT,
-            "WIN" | "WINDOWS" => MOD_WIN,
-            _ => anyhow::bail!("未対応の修飾キーです: {modifier}"),
-        };
-    }
-    let key_name = parts.last().unwrap();
-    let function_key = key_name
-        .strip_prefix('F')
-        .and_then(|number| number.parse::<u32>().ok())
-        .filter(|number| (1..=24).contains(number));
-    let key = match key_name.as_str() {
-        "PRINTSCREEN" | "PRTSC" => 0x2c,
-        "INSERT" => 0x2d,
-        "HOME" => 0x24,
-        "END" => 0x23,
-        "PAGEUP" => 0x21,
-        "PAGEDOWN" => 0x22,
-        name if name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric() => {
-            name.as_bytes()[0] as u32
-        }
-        _ if function_key.is_some() => 0x70 + function_key.unwrap() - 1,
-        _ => anyhow::bail!("未対応のキーです: {key_name}"),
-    };
-    Ok((HOT_KEY_MODIFIERS(mods.0), key))
+    let mut origin = POINT::default();
+    anyhow::ensure!(
+        unsafe { ClientToScreen(hwnd, &mut origin) }.as_bool(),
+        "ゲーム画面の位置を取得できません"
+    );
+    let (pixels, width, height) = capture_window(hwnd)?;
+    let mut current_origin = POINT::default();
+    let mut rect = RECT::default();
+    anyhow::ensure!(
+        hwnd == unsafe { GetForegroundWindow() }
+            && tracker.focused_game() == Some((game_id, session_id))
+            && unsafe { ClientToScreen(hwnd, &mut current_origin) }.as_bool()
+            && unsafe { GetClientRect(hwnd, &mut rect) }.is_ok()
+            && current_origin == origin
+            && (rect.right - rect.left, rect.bottom - rect.top) == (width as i32, height as i32),
+        "取得中にゲーム画面が切り替わりました"
+    );
+    let image = image::RgbaImage::from_raw(width, height, pixels)
+        .ok_or_else(|| anyhow::anyhow!("ゲーム画面を読み取れません"))?;
+    Ok(CapturedGame {
+        hwnd,
+        origin,
+        image,
+        game_id,
+        session_id,
+    })
 }
 
 #[cfg(windows)]
-fn capture_focused(
+pub fn capture_focused(
     app: &AppHandle,
     db: &Database,
     tracker: &TrackingService,
     root: &Path,
 ) -> anyhow::Result<()> {
-    let (game_id, session_id) = tracker
-        .focused_game()
-        .ok_or_else(|| anyhow::anyhow!("フォアグラウンドで計測中のゲームがありません"))?;
-    let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
-    anyhow::ensure!(
-        !hwnd.is_invalid(),
-        "フォアグラウンドウィンドウを取得できません"
-    );
-    let (pixels, width, height) = capture_window(hwnd)?;
+    let CapturedGame {
+        game_id,
+        session_id,
+        image,
+        ..
+    } = capture_game(tracker)?;
+    let (width, height) = image.dimensions();
     let directory = root.join(game_id.to_string());
     std::fs::create_dir_all(&directory)?;
     let captured_at = Utc::now();
     let path = directory.join(format!("{}.png", captured_at.format("%Y%m%d-%H%M%S-%3f")));
-    write_png(&path, &pixels, width, height)?;
+    write_png(&path, image.as_raw(), width, height)?;
     if let Err(e) = db.add_screenshot(
         game_id,
         Some(session_id),

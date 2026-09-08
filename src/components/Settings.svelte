@@ -11,6 +11,12 @@
   export let ondirty: (dirty: boolean) => void = () => {};
   export let onsaved: (settings: Settings) => void = () => {};
   export let trackingActive = false;
+  type HotkeyField = 'screenshot_hotkey' | 'ocr_search_hotkey';
+  const hotkeyFields: Array<{ field: HotkeyField; label: string }> = [
+    { field: 'screenshot_hotkey', label: 'スクリーンショットキー' },
+    { field: 'ocr_search_hotkey', label: 'ゲーム画面のOCR検索キー' },
+  ];
+  let recordingHotkey: HotkeyField | null = null;
   let settings: Settings = {
       autostart: false,
       auto_check_updates: true,
@@ -18,11 +24,11 @@
       close_to_tray: true,
       theme: 'dark',
       screenshot_hotkey: '',
+      ocr_search_hotkey: '',
     },
     message = '',
     error = '',
     hotkeyError = '',
-    recordingHotkey = false,
     checkingHotkey = false,
     hotkeyStatus = '',
     currentVersion = '',
@@ -47,7 +53,8 @@
     lastDirty = false;
   $: {
     const dirty =
-      recordingHotkey ||
+      recordingHotkey !== null ||
+      checkingHotkey ||
       (savedSettings !== null && JSON.stringify(settings) !== JSON.stringify(savedSettings));
     if (dirty !== lastDirty) {
       lastDirty = dirty;
@@ -59,11 +66,11 @@
       [settings, currentVersion] = await Promise.all([api.settings(), getVersion()]);
       savedSettings = { ...settings };
       ontheme(settings.theme);
-      if (settings.screenshot_hotkey) {
+      if (settings.screenshot_hotkey || settings.ocr_search_hotkey) {
         try {
-          await api.validateScreenshotHotkey(settings.screenshot_hotkey);
+          await api.validateHotkeys(settings);
         } catch (e) {
-          hotkeyError = userErrorMessage(e, 'スクリーンショットキーを確認できませんでした。');
+          hotkeyError = userErrorMessage(e, 'ショートカットキーを確認できませんでした。');
         }
       }
     } catch (e) {
@@ -72,7 +79,7 @@
   });
   onDestroy(() => {
     destroyed = true;
-    if (recordingHotkey) api.resumeScreenshotHotkey().catch(() => {});
+    if (recordingHotkey || checkingHotkey) api.resumeHotkeys().catch(() => {});
     if (importPreview && !importConfirmed) {
       api.cancelBackupImport(importPreview.import_id).catch(() => {});
     }
@@ -85,6 +92,7 @@
     ontheme(theme);
   }
   async function save() {
+    if (recordingHotkey || checkingHotkey) return;
     try {
       await api.updateSettings(settings);
       settings = await api.settings();
@@ -116,55 +124,65 @@
     if (key === 'PrintScreen') key = 'PrintScreen';
     return [...modifiers, key].join('+');
   }
+  async function resumeHotkeys() {
+    await api
+      .resumeHotkeys()
+      .catch(
+        (e) => (hotkeyError = userErrorMessage(e, 'ショートカットキーを再登録できませんでした。')),
+      );
+  }
   async function recordHotkey(event: KeyboardEvent) {
     if (!recordingHotkey) return;
     event.preventDefault();
     event.stopPropagation();
+    if (checkingHotkey || event.repeat || event.isComposing) return;
     if (event.key === 'Escape') {
-      recordingHotkey = false;
+      recordingHotkey = null;
       hotkeyStatus = '';
-      await api.resumeScreenshotHotkey();
+      checkingHotkey = true;
+      await resumeHotkeys();
+      checkingHotkey = false;
       return;
     }
     const candidate = hotkeyFromEvent(event);
     if (!candidate) return;
+    const field = recordingHotkey;
     checkingHotkey = true;
     error = '';
     hotkeyError = '';
     hotkeyStatus = `${candidate} を確認中…`;
     try {
-      await api.validateScreenshotHotkey(candidate);
-      settings.screenshot_hotkey = candidate;
-      recordingHotkey = false;
-      hotkeyStatus = '';
+      await api.validateHotkeys({ ...settings, [field]: candidate });
+      if (!destroyed) settings[field] = candidate;
+      recordingHotkey = null;
     } catch (e) {
-      hotkeyStatus = '';
-      hotkeyError = userErrorMessage(e, 'スクリーンショットキーを確認できませんでした。');
+      hotkeyError = userErrorMessage(e, 'ショートカットキーを確認できませんでした。');
     } finally {
-      await api
-        .resumeScreenshotHotkey()
-        .catch(
-          (e) =>
-            (hotkeyError = userErrorMessage(e, 'スクリーンショットキーを再登録できませんでした。')),
-        );
+      hotkeyStatus = '';
+      // Keep both keys suspended after rejection so the next attempt can be recorded.
+      if (!recordingHotkey || destroyed) await resumeHotkeys();
       checkingHotkey = false;
     }
   }
-  async function startHotkeyRecording() {
+  async function startHotkeyRecording(field: HotkeyField) {
+    if (recordingHotkey || checkingHotkey) return;
     hotkeyStatus = '';
     error = '';
     hotkeyError = '';
+    checkingHotkey = true;
     try {
-      await api.suspendScreenshotHotkey();
-      recordingHotkey = true;
+      await api.suspendHotkeys();
+      if (destroyed) await resumeHotkeys();
+      else recordingHotkey = field;
     } catch (e) {
-      hotkeyError = userErrorMessage(e, 'スクリーンショットキーを解除できませんでした。');
+      hotkeyError = userErrorMessage(e, 'ショートカットキーを解除できませんでした。');
+    } finally {
+      checkingHotkey = false;
     }
   }
-  async function clearHotkey() {
-    if (recordingHotkey) await api.resumeScreenshotHotkey();
-    settings.screenshot_hotkey = '';
-    recordingHotkey = false;
+  function clearHotkey(field: HotkeyField) {
+    if (recordingHotkey || checkingHotkey) return;
+    settings[field] = '';
     hotkeyStatus = '';
     error = '';
     hotkeyError = '';
@@ -419,29 +437,46 @@
   ><label class="check"
     ><input type="checkbox" bind:checked={settings.close_to_tray} /> ウィンドウを閉じたらトレイへ格納</label
   >
-  <div class="hotkey-setting">
-    <span class="setting-label">スクリーンショットキー</span>
-    <div
-      class:recording={recordingHotkey}
-      class:invalid={Boolean(hotkeyError)}
-      class="hotkey-recorder"
-    >
-      <kbd
-        >{recordingHotkey
-          ? '設定したいキーを押してください…'
-          : settings.screenshot_hotkey || '未設定'}</kbd
+  {#each hotkeyFields as { field, label }}
+    <div class="hotkey-setting">
+      <span class="setting-label">{label}</span>
+      <div
+        class:recording={recordingHotkey === field}
+        class:invalid={Boolean(hotkeyError)}
+        class="hotkey-recorder"
       >
-      <button type="button" disabled={checkingHotkey} onclick={startHotkeyRecording}>
-        {settings.screenshot_hotkey ? '変更' : 'キーを設定'}
-      </button>
-      {#if settings.screenshot_hotkey}<button type="button" onclick={clearHotkey}>解除</button>{/if}
+        <kbd
+          >{recordingHotkey === field
+            ? '設定したいキーを押してください…'
+            : settings[field] || '未設定'}</kbd
+        >
+        <button
+          type="button"
+          disabled={checkingHotkey || recordingHotkey !== null}
+          onclick={() => startHotkeyRecording(field)}
+        >
+          {settings[field] ? '変更' : 'キーを設定'}
+        </button>
+        {#if settings[field]}
+          <button
+            type="button"
+            disabled={checkingHotkey || recordingHotkey !== null}
+            onclick={() => clearHotkey(field)}>解除</button
+          >
+        {/if}
+      </div>
+      {#if field === 'ocr_search_hotkey'}
+        <p class="hint">
+          計測中のゲームを前面にしてキーを押し、調べたい文字をドラッグするとGoogle検索します。Esc・右クリックで中止できます。
+        </p>
+      {/if}
     </div>
-    <p class="hint">
-      記録中は任意のキーまたはキーの組み合わせを押してください。Escでキャンセルします。
-    </p>
-    {#if hotkeyStatus}<p class="hotkey-status">{hotkeyStatus}</p>{/if}
-    {#if hotkeyError}<p class="error">{hotkeyError}</p>{/if}
-  </div>
+  {/each}
+  <p class="hint">
+    キーの設定中は任意のキーまたはキーの組み合わせを押してください。Escでキャンセルします。
+  </p>
+  {#if hotkeyStatus}<p class="hotkey-status">{hotkeyStatus}</p>{/if}
+  {#if hotkeyError}<p class="error">{hotkeyError}</p>{/if}
   <div class="update-setting">
     <div>
       <span class="setting-label">アプリの更新</span>
@@ -526,7 +561,8 @@
         </div>{/if}
     </div>
   </div>
-  <button class="primary" disabled={recordingHotkey || checkingHotkey} onclick={save}>保存</button
+  <button class="primary" disabled={recordingHotkey !== null || checkingHotkey} onclick={save}
+    >保存</button
   >{#if message}<p>
       {message}
     </p>{/if}{#if error}<p class="error">{error}</p>{/if}

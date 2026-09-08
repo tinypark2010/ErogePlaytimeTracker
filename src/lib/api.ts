@@ -106,10 +106,13 @@ export const api = {
   settings: () => command<Settings>('get_settings'),
   updateSettings: (settings: Settings) => command<void>('update_settings', { settings }),
   skipUpdateVersion: (version: string) => command<void>('skip_update_version', { version }),
-  validateScreenshotHotkey: (hotkey: string) =>
-    command<void>('validate_screenshot_hotkey', { hotkey }),
-  suspendScreenshotHotkey: () => command<void>('suspend_screenshot_hotkey'),
-  resumeScreenshotHotkey: () => command<void>('resume_screenshot_hotkey'),
+  validateHotkeys: (settings: Pick<Settings, 'screenshot_hotkey' | 'ocr_search_hotkey'>) =>
+    command<void>('validate_hotkeys', {
+      screenshotHotkey: settings.screenshot_hotkey,
+      ocrSearchHotkey: settings.ocr_search_hotkey,
+    }),
+  suspendHotkeys: () => command<void>('suspend_hotkeys'),
+  resumeHotkeys: () => command<void>('resume_hotkeys'),
   exportBackup: (
     destination: string,
     includeScreenshots: boolean,

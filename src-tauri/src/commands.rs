@@ -31,7 +31,7 @@ fn known_error_message(detail: &str) -> Option<&str> {
     }
     if detail.starts_with("未対応の修飾キーです:") || detail.starts_with("未対応のキーです:")
     {
-        return Some("スクリーンショットキーの形式が正しくありません。");
+        return Some("ショートカットキーの形式が正しくありません。");
     }
     match detail {
         "バックグラウンド区間がSession範囲外になります" => {
@@ -57,7 +57,9 @@ fn known_error_message(detail: &str) -> Option<&str> {
         "サムネイル画像が見つかりません",
         "サムネイル画像を読み取れません",
         "トリミング画像がPNG形式ではありません",
-        "スクリーンショットキーを入力してください",
+        "ショートカットキーを入力してください",
+        "撮影用とOCR検索用には別のキーを設定してください。",
+        "ショートカットキーを復元できませんでした。設定を確認してください。",
         "このキーは別のアプリで使用されています",
         "開始日時が不正です",
         "終了日時が不正です",
@@ -427,7 +429,12 @@ pub fn update_settings(
     if !matches!(settings.theme.as_str(), "dark" | "light" | "pink" | "blue") {
         return Err(user_error("未対応のカラーテーマです。"));
     }
-    crate::screenshot::validate_hotkey(&settings.screenshot_hotkey).map_err(err)?;
+    let previous = crate::hotkeys::bindings(&state.settings());
+    let hotkeys = crate::hotkeys::bindings(&settings);
+    state
+        .hotkey_service
+        .check_hotkeys(hotkeys.clone())
+        .map_err(err)?;
     use tauri_plugin_autostart::ManagerExt;
     let manager = app.autolaunch();
     let autostart_enabled = manager.is_enabled().map_err(err)?;
@@ -438,17 +445,18 @@ pub fn update_settings(
             manager.disable().map_err(err)?
         }
     }
-    state
-        .screenshot_service
-        .set_hotkey(settings.screenshot_hotkey.clone())
-        .map_err(err)?;
+    state.hotkey_service.set_hotkeys(hotkeys).map_err(err)?;
     // A skip can be saved by the update prompt while the settings screen is open.
     // Preserve the latest value instead of overwriting it with the screen's snapshot.
     settings.skipped_update_version = state.settings().skipped_update_version;
-    state
+    let result = state
         .db
         .set_setting("app", &serde_json::to_string(&settings).map_err(err)?)
-        .map_err(err)
+        .map_err(err);
+    if result.is_err() {
+        state.hotkey_service.set_hotkeys(previous).map_err(err)?;
+    }
+    result
 }
 #[tauri::command]
 pub fn skip_update_version(state: State<AppState>, version: String) -> Cmd<()> {
@@ -460,21 +468,28 @@ pub fn skip_update_version(state: State<AppState>, version: String) -> Cmd<()> {
         .map_err(err)
 }
 #[tauri::command]
-pub fn validate_screenshot_hotkey(state: State<AppState>, hotkey: String) -> Cmd<()> {
-    state.screenshot_service.check_hotkey(hotkey).map_err(err)
-}
-#[tauri::command]
-pub fn suspend_screenshot_hotkey(state: State<AppState>) -> Cmd<()> {
+pub fn validate_hotkeys(
+    state: State<AppState>,
+    screenshot_hotkey: String,
+    ocr_search_hotkey: String,
+) -> Cmd<()> {
     state
-        .screenshot_service
-        .set_hotkey(String::new())
+        .hotkey_service
+        .check_hotkeys([screenshot_hotkey, ocr_search_hotkey])
         .map_err(err)
 }
 #[tauri::command]
-pub fn resume_screenshot_hotkey(state: State<AppState>) -> Cmd<()> {
+pub fn suspend_hotkeys(state: State<AppState>) -> Cmd<()> {
     state
-        .screenshot_service
-        .set_hotkey(state.settings().screenshot_hotkey)
+        .hotkey_service
+        .set_hotkeys(Default::default())
+        .map_err(err)
+}
+#[tauri::command]
+pub fn resume_hotkeys(state: State<AppState>) -> Cmd<()> {
+    state
+        .hotkey_service
+        .set_hotkeys(crate::hotkeys::bindings(&state.settings()))
         .map_err(err)
 }
 

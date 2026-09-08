@@ -1327,6 +1327,7 @@ mod tests {
                     close_to_tray: false,
                     theme: "blue".into(),
                     screenshot_hotkey: "F10".into(),
+                    ocr_search_hotkey: "Ctrl+F10".into(),
                 })
                 .unwrap(),
             )
@@ -1397,6 +1398,7 @@ mod tests {
         assert!(!imported_settings.close_to_tray);
         assert_eq!(imported_settings.theme, "blue");
         assert_eq!(imported_settings.screenshot_hotkey, "F10");
+        assert_eq!(imported_settings.ocr_search_hotkey, "Ctrl+F10");
         assert_eq!(imported_settings.skipped_update_version, None);
         assert_ne!(
             imported.get_setting("last_seen").unwrap().unwrap(),
