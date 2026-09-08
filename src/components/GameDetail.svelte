@@ -105,6 +105,7 @@
     timestampEditError = '';
   let screenshotOcrAttempted = false,
     screenshotOcrLoading = false,
+    screenshotOcrSearching = false,
     screenshotOcrText = '',
     screenshotOcrError = '',
     screenshotOcrRequestId = 0;
@@ -883,6 +884,20 @@
       showToast('文字起こし結果をコピーしました');
     } catch {
       showToast('コピーできませんでした。テキスト欄から手動でコピーしてください。', true);
+    }
+  }
+  async function searchScreenshotOcrText() {
+    const query = screenshotOcrText.trim();
+    if (!query || screenshotOcrLoading || screenshotOcrSearching) return;
+    screenshotOcrSearching = true;
+    try {
+      const url = new URL('https://www.google.com/search');
+      url.searchParams.set('q', query);
+      await api.openExternalUrl(url.toString());
+    } catch (e) {
+      showToast(userErrorMessage(e, '検索結果をブラウザで開けませんでした。'), true);
+    } finally {
+      screenshotOcrSearching = false;
     }
   }
 </script>
@@ -1694,6 +1709,12 @@
               <div class="screenshot-ocr-actions">
                 <button type="button" class="primary" onclick={copyScreenshotOcrText}
                   >結果をコピー</button
+                >
+                <button
+                  type="button"
+                  disabled={screenshotOcrSearching || !screenshotOcrText.trim()}
+                  title="既定のブラウザで文字起こし結果をGoogle検索"
+                  onclick={searchScreenshotOcrText}>Googleで検索</button
                 >
               </div>
             {:else}
