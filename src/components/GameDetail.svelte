@@ -10,6 +10,7 @@
   import { api } from '../lib/api';
   import { userErrorMessage } from '../lib/errors';
   import { formatDateKey } from '../lib/statistics';
+  import { screenshotNavigation } from '../lib/screenshotNavigation';
   import {
     validateBackgroundInterval,
     validateManualSession,
@@ -118,6 +119,7 @@
     currentY: number;
   } | null = null;
   let visibleScreenshotOcrRegion: ScreenshotOcrRegion | null;
+  let screenshotViewer: HTMLElement | undefined;
   const pageSizeOptions = [10, 25, 50];
   let screenshotPage = 1,
     screenshotPageSize = 10,
@@ -125,6 +127,7 @@
     sessionPageSize = 10;
   let intervalBeingEdited: BackgroundInterval | null;
   $: screenshotPageCount = Math.max(1, Math.ceil(screenshots.length / screenshotPageSize));
+  $: screenshotNeighbors = screenshotNavigation(screenshots, selectedScreenshot?.id ?? null);
   $: sessionPageCount = Math.max(1, Math.ceil(sessions.length / sessionPageSize));
   $: pagedScreenshots = screenshots.slice(
     (screenshotPage - 1) * screenshotPageSize,
@@ -174,6 +177,9 @@
       sessions = nextSessions;
       timestamps = nextTimestamps;
       screenshots = nextScreenshots;
+      if (selectedScreenshot && !screenshots.some((shot) => shot.id === selectedScreenshot?.id)) {
+        closeScreenshotViewer();
+      }
       screenshotPage = Math.min(
         screenshotPage,
         Math.max(1, Math.ceil(nextScreenshots.length / screenshotPageSize)),
@@ -857,6 +863,42 @@
     selectedScreenshot = null;
     resetScreenshotOcr();
   }
+  function navigateScreenshot(direction: -1 | 1) {
+    if (screenshotSelectionDraft || screenshotViewer?.querySelector('[role="alertdialog"]')) {
+      return;
+    }
+    const neighbors = screenshotNavigation(screenshots, selectedScreenshot?.id ?? null);
+    const next = direction === -1 ? neighbors.previous : neighbors.next;
+    if (!next) return;
+    openScreenshotViewer(next);
+    screenshotPage = Math.floor((neighbors.index + direction) / screenshotPageSize) + 1;
+  }
+  function handleScreenshotKeydown(event: KeyboardEvent) {
+    if (
+      !selectedScreenshot ||
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      !['ArrowLeft', 'ArrowRight'].includes(event.key)
+    ) {
+      return;
+    }
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || target.closest('input, textarea, select, [role="textbox"]'))
+    ) {
+      return;
+    }
+    if (screenshotSelectionDraft || screenshotViewer?.querySelector('[role="alertdialog"]')) {
+      return;
+    }
+    event.preventDefault();
+    navigateScreenshot(event.key === 'ArrowLeft' ? -1 : 1);
+  }
   async function recognizeScreenshotText() {
     const screenshotId = selectedScreenshot?.id;
     if (screenshotId === undefined || screenshotOcrLoading) return;
@@ -901,6 +943,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={handleScreenshotKeydown} />
 
 <button class="back-button" onclick={onback}>← 戻る</button>{#if game}{#if game.thumbnail_path}<div
       class="detail-backdrop"
@@ -1656,7 +1700,11 @@
     onclick={closeScreenshotViewer}
   >
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <section class="screenshot-viewer" onclick={(event) => event.stopPropagation()}>
+    <section
+      class="screenshot-viewer"
+      bind:this={screenshotViewer}
+      onclick={(event) => event.stopPropagation()}
+    >
       {#if !screenshotOcrAttempted}<button
           class="close"
           aria-label="閉じる"
@@ -1664,24 +1712,46 @@
         >{/if}
       <div class:has-ocr={screenshotOcrAttempted} class="screenshot-viewer-content">
         <div class="screenshot-image-stage">
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="screenshot-selection-surface">
-            <img
-              src={imageSrc(selectedScreenshot.path)}
-              alt="スクリーンショット拡大表示"
-              draggable="false"
-              onpointerdown={beginScreenshotSelection}
-              onpointermove={moveScreenshotSelection}
-              onpointerup={finishScreenshotSelection}
-              onpointercancel={cancelScreenshotSelection}
-            />
-            {#if visibleScreenshotOcrRegion}<div
-                class="screenshot-selection-box"
-                style:left={`${visibleScreenshotOcrRegion.x * 100}%`}
-                style:top={`${visibleScreenshotOcrRegion.y * 100}%`}
-                style:width={`${visibleScreenshotOcrRegion.width * 100}%`}
-                style:height={`${visibleScreenshotOcrRegion.height * 100}%`}
-              ></div>{/if}
+          <div class="screenshot-image-navigation">
+            <button
+              type="button"
+              class="screenshot-navigation-button"
+              aria-label="前のスクリーンショット"
+              title="前のスクリーンショット（←）"
+              disabled={!screenshotNeighbors.previous || Boolean(screenshotSelectionDraft)}
+              onclick={() => navigateScreenshot(-1)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
+            </button>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="screenshot-selection-surface">
+              <img
+                src={imageSrc(selectedScreenshot.path)}
+                alt="スクリーンショット拡大表示"
+                draggable="false"
+                onpointerdown={beginScreenshotSelection}
+                onpointermove={moveScreenshotSelection}
+                onpointerup={finishScreenshotSelection}
+                onpointercancel={cancelScreenshotSelection}
+              />
+              {#if visibleScreenshotOcrRegion}<div
+                  class="screenshot-selection-box"
+                  style:left={`${visibleScreenshotOcrRegion.x * 100}%`}
+                  style:top={`${visibleScreenshotOcrRegion.y * 100}%`}
+                  style:width={`${visibleScreenshotOcrRegion.width * 100}%`}
+                  style:height={`${visibleScreenshotOcrRegion.height * 100}%`}
+                ></div>{/if}
+            </div>
+            <button
+              type="button"
+              class="screenshot-navigation-button"
+              aria-label="次のスクリーンショット"
+              title="次のスクリーンショット（→）"
+              disabled={!screenshotNeighbors.next || Boolean(screenshotSelectionDraft)}
+              onclick={() => navigateScreenshot(1)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+            </button>
           </div>
           <p class="screenshot-selection-hint">
             画像上をドラッグすると文字起こしの範囲を選択できます
@@ -1724,6 +1794,8 @@
       </div>
       <footer>
         <span
+          ><span class="screenshot-position" role="status"
+            >{screenshotNeighbors.index + 1} / {screenshots.length}</span
           >{local(selectedScreenshot.captured_at)} ・ {selectedScreenshot.width}×{selectedScreenshot.height}</span
         >
         <div class="screenshot-footer-actions">
