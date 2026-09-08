@@ -1,6 +1,8 @@
 mod backup;
 mod commands;
 mod database;
+mod game_ocr;
+mod hotkeys;
 mod metadata;
 mod models;
 mod ocr;
@@ -27,7 +29,7 @@ pub struct AppState {
     data_root: PathBuf,
     thumbnails: PathBuf,
     screenshots: PathBuf,
-    screenshot_service: screenshot::ScreenshotService,
+    hotkey_service: hotkeys::HotkeyService,
     http: reqwest::Client,
     backup_operations: Arc<parking_lot::Mutex<()>>,
     quitting: AtomicBool,
@@ -120,12 +122,12 @@ pub fn run() {
                 backup::finish_import(&root, applied, warning);
             }
             let tracker = TrackingService::start(db.clone(), app.handle().clone());
-            let screenshot_service = screenshot::ScreenshotService::start(
+            let hotkey_service = hotkeys::HotkeyService::start(
                 app.handle().clone(),
                 db.clone(),
                 tracker.clone(),
                 screenshots.clone(),
-                settings.screenshot_hotkey.clone(),
+                hotkeys::bindings(&settings),
             );
             let show = MenuItemBuilder::with_id("show", "メインウィンドウを開く").build(app)?;
             let status = MenuItemBuilder::with_id("status", "追跡状態: 待機中")
@@ -162,7 +164,7 @@ pub fn run() {
                 data_root: root,
                 thumbnails: thumbs,
                 screenshots,
-                screenshot_service,
+                hotkey_service,
                 http: reqwest::Client::new(),
                 backup_operations: Arc::new(parking_lot::Mutex::new(())),
                 quitting: AtomicBool::new(false),
@@ -215,9 +217,9 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::skip_update_version,
-            commands::validate_screenshot_hotkey,
-            commands::suspend_screenshot_hotkey,
-            commands::resume_screenshot_hotkey,
+            commands::validate_hotkeys,
+            commands::suspend_hotkeys,
+            commands::resume_hotkeys,
             commands::export_backup,
             commands::prepare_backup_import,
             commands::confirm_backup_import,

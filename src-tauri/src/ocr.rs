@@ -51,6 +51,13 @@ pub fn recognize_japanese_text(
     }
 
     let image = image::open(path).map_err(ScreenshotOcrError::ImageLoading)?;
+    recognize_image(image, region)
+}
+
+pub fn recognize_image(
+    image: DynamicImage,
+    region: Option<ScreenshotOcrRegion>,
+) -> Result<ScreenshotOcrResult, ScreenshotOcrError> {
     let image = crop_image(image, region)?;
     let engine = OCR_ENGINE
         .get_or_init(|| {

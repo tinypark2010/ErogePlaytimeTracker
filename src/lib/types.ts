@@ -155,6 +155,7 @@ export interface Settings {
   close_to_tray: boolean;
   theme: Theme;
   screenshot_hotkey: string;
+  ocr_search_hotkey: string;
 }
 export interface TrackingStatus {
   games: Array<{

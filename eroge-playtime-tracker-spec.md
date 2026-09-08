@@ -732,6 +732,8 @@ Network access should occur only for metadata/thumbnail retrieval or other expli
 
 Screenshot OCR runs locally. When the user chooses Google search, open a Google search URL containing the full recognized text in the default browser. Only this explicit search action sends recognized text to Google; screenshot images are not uploaded.
 
+A separately configured OCR search hotkey starts region selection over the foreground tracked game's client area. Hold the captured frame in memory without creating a screenshot file or history record. Releasing a valid selection runs local OCR and opens Google search for the full nonempty result. Escape, right-click, or focus loss cancels selection without searching. The overlay shows a frozen frame but does not pause the game or alter background-time accounting.
+
 Do not upload play history.
 
 Do not require an account.
