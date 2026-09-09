@@ -30,11 +30,20 @@ When the user requests a version bump or release preparation:
 1. Resolve the exact target version. Ask when choosing major, minor, or patch would materially change the user's intent; do not guess from commit history alone.
 2. Confirm the target is greater than the current version and that neither a local nor remote `v<version>` tag already exists.
 3. Follow the repository branch policy. Keep unrelated working-tree changes intact and put release preparation on a focused topic branch.
-4. Update all five version-bearing files. Change only the application version and the corresponding lockfile entries; do not update dependencies as a side effect.
-5. Run the version checker, inspect the complete diff, and confirm it contains no generated installer, `THIRD_PARTY_LICENSES.txt`, secret, dependency change, or unrelated edit.
+4. Update all five version-bearing files. Change only the application version and the corresponding lockfile entries; do not update dependencies as a side effect. Prepare the bundled Japanese notes as described below in the same release-preparation change.
+5. Run the version checker and `npm run release-notes:check -- --version <version>`, inspect the complete diff, and confirm it contains no generated installer, `THIRD_PARTY_LICENSES.txt`, secret, dependency change, or unrelated edit.
 6. Run the handoff checks required by `AGENTS.md`. A release-preparation commit uses the repository's `[release]` convention when the user has also authorized a commit.
 
 Preparation does not authorize a commit, push, pull request, tag, or publication. If the user asks to open the preparation PR, follow the repository's PR workflow. Do not tag the topic-branch commit; publication begins only after the preparation change is merged to `main`.
+
+### Prepare user-facing update notes
+
+Read the update-notification and Release sections of `docs/technical-notes.md` for the bundled `release-notes/ja.json` format and validation commands.
+
+- Identify the previous published stable GitHub Release and its tag commit, not merely the newest local tag. Inspect the PRs, commits, and implementation between that commit and the exact release target. If the published baseline cannot be verified, report that gap instead of guessing the change range.
+- Draft concise Japanese bullet items describing user-visible additions, improvements, and fixes. Combine related PRs into one outcome where appropriate; do not copy PR titles or select solely by commit prefix. Omit internal-only refactors, CI, website-only changes, and dependencies unless they actually change app behavior for users. Describe the final behavior, not intermediate fixes to an unreleased feature.
+- Add an entry for the exact target version, newest first, keeping published entries unchanged. Use `changes: []` explicitly when there are no user-facing changes; do not invent a generic improvement. The app still confirms update completion for that version.
+- Include the proposed Japanese text (or the explicit internal-only decision), previous published tag, and inspected target commit in the preparation review/PR so the user can review the content before publication. Finalize this data before building; never generate it dynamically on the user's PC or after publishing.
 
 ## Publish a release
 
@@ -43,7 +52,7 @@ Only publish when the user explicitly asks to release or publish the exact versi
 Before creating the tag:
 
 1. Fetch `origin/main` and tags, then verify the working tree is clean, `HEAD` is the intended commit on local `main`, and local `main` equals `origin/main`.
-2. Verify all five version values equal the requested version.
+2. Verify all five version values equal the requested version and run `npm run release-notes:check -- --version <version>`. Recheck the notes against changes merged since preparation and the current previous published release. If user-facing changes are missing or the reviewed range is stale, stop publication and prepare a correction for review before tagging.
 3. Verify `v<version>` is absent locally and on the remote. Never move, replace, force-push, or delete an existing release tag.
 4. Confirm the release-preparation change is merged and the required checks for that `main` commit passed. Do not release directly from an unmerged topic branch.
 

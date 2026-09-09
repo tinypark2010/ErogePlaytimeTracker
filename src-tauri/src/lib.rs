@@ -9,6 +9,7 @@ mod ocr;
 mod screenshot;
 mod thumbnail;
 mod tracking;
+mod update_notice;
 use crate::{database::Database, models::AppSettings, tracking::TrackingService};
 use chrono::Utc;
 use std::{
@@ -33,6 +34,7 @@ pub struct AppState {
     http: reqwest::Client,
     backup_operations: Arc<parking_lot::Mutex<()>>,
     quitting: AtomicBool,
+    update_notices: parking_lot::Mutex<Option<update_notice::UpdateNotices>>,
 }
 impl AppState {
     fn settings(&self) -> AppSettings {
@@ -59,6 +61,7 @@ pub fn run() {
                 .ok_or_else(|| anyhow::anyhow!("Application Data directoryを取得できません"))?;
             let root = dirs.data_local_dir().join("ErogePlaytimeTracker");
             std::fs::create_dir_all(&root)?;
+            let existing_installation = root.join("app.db").exists();
             let applied_import = backup::apply_pending_import(&root)?;
             let initialized = (|| -> anyhow::Result<_> {
                 let thumbs = root.join("thumbnails");
@@ -150,6 +153,19 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+            // Only successful installed-app starts may create/advance notice state.
+            // Development runs must not acknowledge the user's installed release.
+            let update_notices = if cfg!(debug_assertions) {
+                None
+            } else {
+                update_notice::UpdateNotices::open(
+                    &root,
+                    app.package_info().version.clone(),
+                    existing_installation,
+                )
+                .map_err(|error| log::warn!("could not initialize update notice: {error:#}"))
+                .ok()
+            };
             app.manage(AppState {
                 db,
                 tracker,
@@ -160,6 +176,7 @@ pub fn run() {
                 http: reqwest::Client::new(),
                 backup_operations: Arc::new(parking_lot::Mutex::new(())),
                 quitting: AtomicBool::new(false),
+                update_notices: parking_lot::Mutex::new(update_notices),
             });
             Ok(())
         })
@@ -209,6 +226,8 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::skip_update_version,
+            commands::get_update_completion_notice,
+            commands::acknowledge_update_completion,
             commands::validate_hotkeys,
             commands::suspend_hotkeys,
             commands::resume_hotkeys,

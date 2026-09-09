@@ -7,9 +7,15 @@
   import AddGame from './components/AddGame.svelte';
   import Settings from './components/Settings.svelte';
   import UpdatePrompt from './components/UpdatePrompt.svelte';
+  import UpdateCompletionNotice from './components/UpdateCompletionNotice.svelte';
   import { api } from './lib/api';
   import { trackingStatusGroups, trackingStatusText } from './lib/trackingStatus';
-  import type { BackupImportNotice, Theme, TrackingStatus } from './lib/types';
+  import type {
+    BackupImportNotice,
+    Theme,
+    TrackingStatus,
+    UpdateCompletionNotice as CompletionNotice,
+  } from './lib/types';
   type Page = 'library' | 'statistics' | 'game' | 'add' | 'settings';
   let page: Page = 'library',
     gameId = 0,
@@ -26,7 +32,14 @@
     gameReturnPage: 'library' | 'statistics' = 'library',
     importNotice: BackupImportNotice | null = null,
     gameOcrError = '';
+  let completionNotice: CompletionNotice | null = null;
+  let completionLoaded = false;
+  let completionWarning = '';
+  const completionPreview =
+    import.meta.env.DEV && ['true', 'empty'].includes(import.meta.env.VITE_MOCK_UPDATE_NOTICE);
+  $: startupBlocked = !completionLoaded || completionNotice !== null;
   function goTo(next: Page, shouldReload = false) {
+    if (startupBlocked) return;
     if (page === 'settings' && next !== 'settings' && settingsDirty) {
       pendingPage = next;
       pendingReload = shouldReload;
@@ -56,14 +69,42 @@
     status = next;
   }
   onMount(() => {
-    api.settings().then((v) => {
-      savedTheme = v.theme;
-      autoCheckUpdates = v.auto_check_updates;
-      excludeBackgroundTime = v.exclude_background_time;
-      skippedUpdateVersion = v.skipped_update_version;
-      applyTheme(v.theme);
-      settingsLoaded = true;
-    });
+    api
+      .settings()
+      .then((v) => {
+        savedTheme = v.theme;
+        autoCheckUpdates = v.auto_check_updates;
+        excludeBackgroundTime = v.exclude_background_time;
+        skippedUpdateVersion = v.skipped_update_version;
+        applyTheme(v.theme);
+      })
+      .catch((error) => console.warn('設定の読み込みに失敗しました', error))
+      .then(() => (settingsLoaded = true));
+    const pendingNotice: Promise<CompletionNotice | null> = completionPreview
+      ? Promise.resolve({
+          version: '1.2.3',
+          releases:
+            import.meta.env.VITE_MOCK_UPDATE_NOTICE === 'empty'
+              ? []
+              : [
+                  {
+                    version: '1.2.3',
+                    changes: [
+                      '新機能の説明がここに表示されます。',
+                      '修正された不具合の説明がここに表示されます。',
+                    ],
+                  },
+                  {
+                    version: '1.2.2',
+                    changes: ['途中のバージョンの更新内容もまとめて確認できます。'],
+                  },
+                ],
+        })
+      : api.updateCompletionNotice();
+    pendingNotice
+      .then((notice) => (completionNotice = notice))
+      .catch((error) => console.warn('更新完了通知を読み込めませんでした', error))
+      .then(() => (completionLoaded = true));
     api.status().then(updateStatus);
     api
       .takeBackupImportNotice()
@@ -92,14 +133,24 @@
 <header>
   <button
     class="brand"
+    disabled={startupBlocked}
     onclick={() => {
       goTo('library', true);
     }}>Eroge Playtime Tracker</button
   >
   <nav>
-    <button class:active={page === 'library'} onclick={() => goTo('library')}>ライブラリ</button
-    ><button class:active={page === 'statistics'} onclick={() => goTo('statistics')}>統計</button
-    ><button class:active={page === 'add'} onclick={() => goTo('add')}>ゲーム追加</button><button
+    <button
+      disabled={startupBlocked}
+      class:active={page === 'library'}
+      onclick={() => goTo('library')}>ライブラリ</button
+    ><button
+      disabled={startupBlocked}
+      class:active={page === 'statistics'}
+      onclick={() => goTo('statistics')}>統計</button
+    ><button disabled={startupBlocked} class:active={page === 'add'} onclick={() => goTo('add')}
+      >ゲーム追加</button
+    ><button
+      disabled={startupBlocked}
       class:active={page === 'settings'}
       onclick={() => goTo('settings')}>設定</button
     >
@@ -113,6 +164,12 @@
   </div>
 </header>
 <main>
+  {#if completionWarning}<div class="app-notice warning" role="alert">
+      <p>{completionWarning}</p>
+      <button type="button" aria-label="通知を閉じる" onclick={() => (completionWarning = '')}
+        >×</button
+      >
+    </div>{/if}
   {#if gameOcrError}<div class="app-notice warning" role="alert">
       <div>
         <strong>ゲーム画面のOCR検索</strong>
@@ -136,37 +193,49 @@
         >×</button
       >
     </div>{/if}
-  {#if page === 'library'}<Library
-      {refresh}
-      {openGame}
-    />{:else if page === 'statistics'}<Statistics
-      {openGame}
-      trackingActive={status.games.length > 0}
-    />{:else if page === 'game'}<GameDetail
-      {excludeBackgroundTime}
-      {gameId}
-      onback={() => {
-        page = gameReturnPage;
-        if (gameReturnPage === 'library') reload();
-      }}
-    />{:else if page === 'add'}<AddGame
-      ondone={(id) => {
-        openGame(id);
-      }}
-      oncancel={() => (page = 'library')}
-    />{:else}<Settings
-      trackingActive={status.games.length > 0}
-      ontheme={applyTheme}
-      ondirty={(dirty) => (settingsDirty = dirty)}
-      onsaved={(settings) => {
-        savedTheme = settings.theme;
-        autoCheckUpdates = settings.auto_check_updates;
-        excludeBackgroundTime = settings.exclude_background_time;
-        skippedUpdateVersion = settings.skipped_update_version;
-      }}
-    />{/if}
+  {#if !startupBlocked}
+    {#if page === 'library'}<Library
+        {refresh}
+        {openGame}
+      />{:else if page === 'statistics'}<Statistics
+        {openGame}
+        trackingActive={status.games.length > 0}
+      />{:else if page === 'game'}<GameDetail
+        {excludeBackgroundTime}
+        {gameId}
+        onback={() => {
+          page = gameReturnPage;
+          if (gameReturnPage === 'library') reload();
+        }}
+      />{:else if page === 'add'}<AddGame
+        ondone={(id) => {
+          openGame(id);
+        }}
+        oncancel={() => (page = 'library')}
+      />{:else}<Settings
+        trackingActive={status.games.length > 0}
+        ontheme={applyTheme}
+        ondirty={(dirty) => (settingsDirty = dirty)}
+        onsaved={(settings) => {
+          savedTheme = settings.theme;
+          autoCheckUpdates = settings.auto_check_updates;
+          excludeBackgroundTime = settings.exclude_background_time;
+          skippedUpdateVersion = settings.skipped_update_version;
+        }}
+      />{/if}
+  {/if}
 </main>
-{#if settingsLoaded}
+{#if settingsLoaded && completionNotice}
+  <UpdateCompletionNotice
+    notice={completionNotice}
+    preview={completionPreview}
+    onclose={(warning) => {
+      completionWarning = warning;
+      completionNotice = null;
+    }}
+  />
+{/if}
+{#if settingsLoaded && !startupBlocked}
   <UpdatePrompt
     autoCheck={autoCheckUpdates}
     skippedVersion={skippedUpdateVersion}

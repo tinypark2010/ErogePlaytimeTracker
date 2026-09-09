@@ -52,17 +52,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify tag matches application version
+      - name: Verify release version and user-facing notes
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           if ("v$version" -ne "${{ github.ref_name }}") {
             throw "Tag ${{ github.ref_name }} does not match package version v$version"
           }
-          $tauriVersion = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          if ($tauriVersion -ne $version) { throw "tauri.conf.json version does not match package.json" }
-          $cargoVersion = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
-          if ($cargoVersion -ne $version) { throw "Cargo.toml version does not match package.json" }
+          & ./.agents/skills/release/scripts/check-release-version.ps1 -ExpectedVersion $version
+          npm run release-notes:check -- --version $version
 
       - name: Generate and audit third-party license notices
         run: npm run licenses

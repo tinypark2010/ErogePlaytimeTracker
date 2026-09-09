@@ -284,3 +284,16 @@ pub struct BackupImportNotice {
     pub message: String,
     pub auto_backup_path: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseChanges {
+    pub version: semver::Version,
+    pub changes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateCompletionNotice {
+    pub version: semver::Version,
+    pub releases: Vec<ReleaseChanges>,
+}

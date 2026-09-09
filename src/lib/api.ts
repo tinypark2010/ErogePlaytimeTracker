@@ -20,6 +20,7 @@ import type {
   StatisticsPeriodInput,
   StatisticsReport,
   TrackingStatus,
+  UpdateCompletionNotice,
 } from './types';
 
 function command<T>(name: string, args?: Record<string, unknown>) {
@@ -106,6 +107,10 @@ export const api = {
   settings: () => command<Settings>('get_settings'),
   updateSettings: (settings: Settings) => command<void>('update_settings', { settings }),
   skipUpdateVersion: (version: string) => command<void>('skip_update_version', { version }),
+  updateCompletionNotice: () =>
+    command<UpdateCompletionNotice | null>('get_update_completion_notice'),
+  acknowledgeUpdateCompletion: (version: string) =>
+    command<void>('acknowledge_update_completion', { version }),
   validateHotkeys: (settings: Pick<Settings, 'screenshot_hotkey' | 'ocr_search_hotkey'>) =>
     command<void>('validate_hotkeys', {
       screenshotHotkey: settings.screenshot_hotkey,

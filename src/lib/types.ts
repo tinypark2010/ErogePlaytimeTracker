@@ -206,3 +206,13 @@ export interface BackupImportNotice {
   message: string;
   auto_backup_path: string;
 }
+
+export interface ReleaseChanges {
+  version: string;
+  changes: string[];
+}
+
+export interface UpdateCompletionNotice {
+  version: string;
+  releases: ReleaseChanges[];
+}

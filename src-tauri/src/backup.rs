@@ -1315,8 +1315,10 @@ mod tests {
 
     #[test]
     fn export_import_round_trip_rewrites_media_and_preserves_playtime() {
+        use crate::update_notice::UpdateNotices;
         let temporary = TestDirectory::new("backup-round-trip");
         let (source_root, source_database, game_id) = create_data_root(&temporary.0, "source");
+        UpdateNotices::open(&source_root, "0.1.10".parse().unwrap(), false).unwrap();
         source_database
             .set_setting(
                 "app",
@@ -1365,6 +1367,7 @@ mod tests {
 
         let (destination_root, destination_database, _) =
             create_data_root(&temporary.0, "destination");
+        UpdateNotices::open(&destination_root, "0.1.12".parse().unwrap(), false).unwrap();
         let preview =
             prepare_import(&destination_database, &destination_root, &backup_path).unwrap();
         assert_eq!(preview.summary, exported.summary);
@@ -1380,6 +1383,12 @@ mod tests {
         drop(destination_database);
 
         let applied = apply_pending_import(&destination_root).unwrap().unwrap();
+        assert!(
+            UpdateNotices::open(&destination_root, "0.1.12".parse().unwrap(), true)
+                .unwrap()
+                .pending()
+                .is_none()
+        );
         let imported = Database::open(&destination_root.join(DATABASE_PATH)).unwrap();
         let game = imported.get_game(game_id).unwrap();
         assert_eq!(game.summary.title, "Game from source");
