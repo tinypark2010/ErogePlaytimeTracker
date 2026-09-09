@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run release-notes:check && vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "commit-policy:check": "node scripts/validate-commits.mjs",
     "commit-policy:test": "vitest run scripts/validate-commits.test.mjs",
+    "release-notes:check": "node scripts/check-release-notes.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "licenses": "node scripts/generate-licenses.mjs",

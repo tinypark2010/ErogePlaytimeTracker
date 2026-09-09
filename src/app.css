@@ -1421,6 +1421,35 @@ small {
   width: 100%;
   margin-bottom: 1.4rem;
 }
+.update-completion-dialog {
+  margin: auto;
+  color: inherit;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+.update-completion-dialog::backdrop {
+  background: #08070dc7;
+}
+.update-completion-dialog p {
+  color: inherit;
+}
+.update-release-notes {
+  margin: 1.4rem 0;
+  text-align: left;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.update-release-notes h3,
+.update-release-notes h4 {
+  margin: 0.8rem 0 0.4rem;
+}
+.update-release-notes ul {
+  margin: 0.4rem 0;
+  padding-left: 1.5rem;
+}
+.update-release-notes li + li {
+  margin-top: 0.4rem;
+}
 .theme-preview {
   display: flex;
   gap: 0.45rem;

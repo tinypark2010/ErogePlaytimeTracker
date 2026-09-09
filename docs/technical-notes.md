@@ -51,6 +51,7 @@ dataは`%LOCALAPPDATA%\ErogePlaytimeTracker\`配下に保存します。
 - `thumbnails\`: download済みpackage image cache
 - `screenshots\`: 撮影したscreenshot
 - `backups\`: import直前に自動作成される復旧用`.eptbackup`
+- `update-notice-state.json`: このPCでの更新完了通知の確認状態（backup対象外）
 - log: Tauri log pluginの標準app log directory
 
 durationはDBへ重複保存せず、sessionとintervalのtimestampからquery時に算出します。
@@ -97,6 +98,40 @@ game IDまたはgame URLからtitle、brand、発売日、package imageを取得
 本appはErogameScapeおよび各game makerの公式appではありません。取得したpackage imageは利用者のPC内にのみcacheし、repositoryやinstallerには同梱しません。各画像とgame情報に関する権利は、それぞれの権利者に帰属します。site運営者または権利者から要請があった場合は、連携方法を見直します。
 
 ## Release
+
+### 更新完了通知
+
+インストール済みappの起動が成功した後、`update_notice.rs`が実行中versionとこのPCの確認済みversionを比較します。ダウンロードやinstaller起動を完了扱いにしないため、自動更新通知・設定画面・手動installerのいずれから更新しても同じ判定です。playtime tracking、update前の起動中game guard、`AppSettings`やDB schemaは変更しません。
+
+初回インストールでは現在versionを基準として保存するだけで通知しません。この機能を持たない旧appからの更新では、既存`app.db`の有無から導入済みと判断し、まず現在versionの通知を一度表示します。以後は未確認の範囲を新しいversionから順にまとめ、間にある内部変更のみのversionには空の見出しを出しません。現在versionの更新完了は変更点の有無にかかわらず通知します。
+
+`get_update_completion_notice`は未確認通知を消費しません。閉じるボタンまたはEscで`acknowledge_update_completion`を呼び、成功時にだけ確認済みversionを進めます。閉じずに終了した場合は次回起動時も表示します。同一versionでの再起動・再インストールやdowngradeでは確認済みversionを下げません。
+
+確認状態はdata rootの独立JSONを一時file経由で置換し、backup export/importの対象にしません。保存・読み込みの失敗はtrackingやapp操作を止めません。状態が破損している場合はlocal logへ記録し、その起動では通知を抑止して破損fileを保持します。確認状態の保存失敗時はアプリ内で再表示の可能性を知らせます。通知はappが表示・focusされた時に開き、native windowのshow/activateは行いません。設定読込を待ち、通知を閉じてから通常画面と新versionの案内を開始するため、未保存設定の確認などと重なりません。
+
+debug buildは実際の確認状態を読み書きしません。実更新なしのUI確認には、PowerShellで`$env:VITE_MOCK_UPDATE_NOTICE='true'; npm run tauri dev`を使います。`'empty'`では完了文言だけの表示を確認できます。実際のupdaterを試さず表示を確認する既存の`VITE_MOCK_UPDATE`とは別のDEV専用設定です。
+
+### 利用者向け更新内容の準備
+
+`.agents/skills/release/SKILL.md`に従い、release準備時に前回の公開済みstable releaseから対象commitまでを確認し、利用者に伝える機能追加・改善・修正だけを日本語の箇条書きへ整理します。PR titleの転記やprefixによる機械的な抽出は行いません。release準備のreview/PRで文言と調査範囲を確認し、公開前に追加mergeによる漏れを再確認します。GitHub Releaseの自動生成PR一覧は従来どおり残します。
+
+`release-notes/ja.json`を次の形式でversion更新と同時に編集します。`releases`は新しいversion順で、公開済みentryは保持します。下記は形式の例であり、実際のversionや文言は対象releaseに合わせます。
+
+```json
+{
+  "schema_version": 1,
+  "releases": [
+    { "version": "1.2.3", "changes": ["設定から新しい機能を利用できるようになりました。"] },
+    { "version": "1.2.2", "changes": [] }
+  ]
+}
+```
+
+各`changes`は空白だけでない1行のplain textです。内部変更だけなら明示的に`[]`を入れ、架空の改善文言や「変更点はありません」を追加しません。RustがJSONをbinaryへ同梱し、表示のためのnetwork accessやMarkdown/HTML解釈は行いません。
+
+`npm run release-notes:check`（`npm run build`にも含む）でschema、version、重複、並び順、文言の形式を検証します。release準備とtag workflowでは`npm run release-notes:check -- --version <version>`により**対象versionのentryが存在すること**も必須にします。entry欠落と意図的な`changes: []`を区別し、未準備のまま公開されるのを防ぎます。この機能の導入commitでは既に公開済みのversionの内容を遡って作らずcatalogを空にしておき、次のrelease準備時から記入します。
+
+### 公開
 
 versionを`package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`で一致させ、同じversionのannotated tagをpushするとGitHub ActionsがWindows x64 installerを生成・公開します。
 

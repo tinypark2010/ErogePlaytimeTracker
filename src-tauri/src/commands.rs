@@ -425,6 +425,21 @@ pub fn get_settings(state: State<AppState>) -> Cmd<AppSettings> {
     Ok(state.settings())
 }
 #[tauri::command]
+pub fn get_update_completion_notice(state: State<AppState>) -> Cmd<Option<UpdateCompletionNotice>> {
+    Ok(state
+        .update_notices
+        .lock()
+        .as_ref()
+        .and_then(|notices| notices.pending()))
+}
+#[tauri::command]
+pub fn acknowledge_update_completion(state: State<AppState>, version: String) -> Cmd<()> {
+    if let Some(notices) = state.update_notices.lock().as_mut() {
+        notices.acknowledge(&version).map_err(err)?;
+    }
+    Ok(())
+}
+#[tauri::command]
 pub fn update_settings(
     app: tauri::AppHandle,
     state: State<AppState>,
