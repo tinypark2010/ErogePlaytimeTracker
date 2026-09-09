@@ -22,6 +22,7 @@
       auto_check_updates: true,
       skipped_update_version: null,
       close_to_tray: true,
+      exclude_background_time: true,
       theme: 'dark',
       screenshot_hotkey: '',
       ocr_search_hotkey: '',
@@ -437,6 +438,18 @@
   ><label class="check"
     ><input type="checkbox" bind:checked={settings.close_to_tray} /> ウィンドウを閉じたらトレイへ格納</label
   >
+  <label class="check"
+    ><input
+      type="checkbox"
+      bind:checked={settings.exclude_background_time}
+      aria-describedby="background-playtime-help"
+    /> バックグラウンド時間をプレイ時間から除外する</label
+  >
+  <p class="hint" id="background-playtime-help">
+    初期設定はオンです。オフにすると、起動から終了までの時間をプレイ時間として計算します。
+    保存すると、すべてのゲームの過去の履歴・統計にも反映されます。
+    どちらの設定でもバックグラウンド時間の記録は続けるため、あとから切り替えられます。
+  </p>
   {#each hotkeyFields as { field, label }}
     <div class="hotkey-setting">
       <span class="setting-label">{label}</span>

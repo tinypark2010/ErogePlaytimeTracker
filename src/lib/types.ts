@@ -153,6 +153,7 @@ export interface Settings {
   auto_check_updates: boolean;
   skipped_update_version: string | null;
   close_to_tray: boolean;
+  exclude_background_time: boolean;
   theme: Theme;
   screenshot_hotkey: string;
   ocr_search_hotkey: string;

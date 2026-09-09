@@ -36,12 +36,7 @@ pub struct AppState {
 }
 impl AppState {
     fn settings(&self) -> AppSettings {
-        self.db
-            .get_setting("app")
-            .ok()
-            .flatten()
-            .and_then(|x| serde_json::from_str(&x).ok())
-            .unwrap_or_default()
+        self.db.settings().unwrap_or_default()
     }
 }
 pub fn run() {
@@ -85,10 +80,7 @@ pub fn run() {
                     log::info!("migrated {migrated} sessions to background intervals")
                 }
                 db.set_setting("last_seen", &Utc::now().to_rfc3339())?;
-                let settings = db
-                    .get_setting("app")?
-                    .and_then(|x| serde_json::from_str::<AppSettings>(&x).ok())
-                    .unwrap_or_default();
+                let settings = db.settings()?;
                 Ok((db, thumbs, screenshots, settings))
             })();
             let (db, thumbs, screenshots, settings) = match initialized {

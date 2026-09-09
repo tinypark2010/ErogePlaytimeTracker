@@ -1325,6 +1325,7 @@ mod tests {
                     auto_check_updates: false,
                     skipped_update_version: Some("0.1.9".into()),
                     close_to_tray: false,
+                    exclude_background_time: false,
                     theme: "blue".into(),
                     screenshot_hotkey: "F10".into(),
                     ocr_search_hotkey: "Ctrl+F10".into(),
@@ -1390,16 +1391,26 @@ mod tests {
         assert!(screenshot.starts_with(destination_root.join("screenshots")));
         assert_eq!(fs::read(screenshot).unwrap(), b"screenshot");
         let sessions = imported.list_sessions(game_id).unwrap();
-        assert_eq!(sessions[0].playtime_seconds, 2_700);
-        let imported_settings: AppSettings =
+        assert_eq!(sessions[0].playtime_seconds, 3_600);
+        assert_eq!(sessions[0].background_seconds, 900);
+        let mut imported_settings: AppSettings =
             serde_json::from_str(&imported.get_setting("app").unwrap().unwrap()).unwrap();
         assert!(imported_settings.autostart);
         assert!(!imported_settings.auto_check_updates);
         assert!(!imported_settings.close_to_tray);
+        assert!(!imported_settings.exclude_background_time);
         assert_eq!(imported_settings.theme, "blue");
         assert_eq!(imported_settings.screenshot_hotkey, "F10");
         assert_eq!(imported_settings.ocr_search_hotkey, "Ctrl+F10");
         assert_eq!(imported_settings.skipped_update_version, None);
+        imported_settings.exclude_background_time = true;
+        imported
+            .set_setting("app", &serde_json::to_string(&imported_settings).unwrap())
+            .unwrap();
+        assert_eq!(
+            imported.list_sessions(game_id).unwrap()[0].playtime_seconds,
+            2_700
+        );
         assert_ne!(
             imported.get_setting("last_seen").unwrap().unwrap(),
             "2020-01-01T00:00:00Z"

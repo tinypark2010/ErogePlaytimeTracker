@@ -66,7 +66,7 @@ export function validateSessionEdit(
     );
   });
   if (intervalOutsideSession) {
-    return '開始・終了日時には、すべての除外区間を含む範囲を指定してください。';
+    return '開始・終了日時には、すべてのバックグラウンド区間を含む範囲を指定してください。';
   }
   return overlapsExistingRange(startMs, endMs, sessions, excludedSessionId)
     ? '既存のセッションと重複しない日時を入力してください。'
@@ -87,7 +87,7 @@ export function validateRunningSessionEdit(
     return intervalStartMs === null || intervalStartMs < startMs;
   });
   if (intervalOutsideSession) {
-    return '開始日時には、すべての除外区間を含む範囲を指定してください。';
+    return '開始日時には、すべてのバックグラウンド区間を含む範囲を指定してください。';
   }
   return overlapsExistingRange(startMs, Number.POSITIVE_INFINITY, sessions, excludedSessionId)
     ? '既存のセッションと重複しない日時を入力してください。'
@@ -102,13 +102,13 @@ export function validateBackgroundInterval(
   excludedIntervalId?: number,
 ) {
   if (end === null) {
-    if (!start) return '除外区間の開始日時を入力してください。';
+    if (!start) return 'バックグラウンド区間の開始日時を入力してください。';
     if (timestamp(start) === null) return '日時を正しく入力してください。';
   } else {
     const rangeError = validateRange(
       start,
       end,
-      '除外区間の開始日時と終了日時を入力してください。',
+      'バックグラウンド区間の開始日時と終了日時を入力してください。',
     );
     if (rangeError) return rangeError;
   }
@@ -122,9 +122,9 @@ export function validateBackgroundInterval(
     startMs < sessionStartMs ||
     (sessionEndMs !== null && (end === null || endMs > sessionEndMs))
   ) {
-    return '除外区間はセッションの開始・終了日時の範囲内で入力してください。';
+    return 'バックグラウンド区間はセッションの開始・終了日時の範囲内で入力してください。';
   }
 
   const overlaps = overlapsExistingRange(startMs, endMs, intervals, excludedIntervalId);
-  return overlaps ? '既存の除外区間と重複しない日時を入力してください。' : '';
+  return overlaps ? '既存のバックグラウンド区間と重複しない日時を入力してください。' : '';
 }

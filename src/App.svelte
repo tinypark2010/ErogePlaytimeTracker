@@ -17,6 +17,7 @@
     status: TrackingStatus = { games: [] },
     savedTheme: Theme = 'dark',
     autoCheckUpdates = true,
+    excludeBackgroundTime = true,
     skippedUpdateVersion: string | null = null,
     settingsLoaded = false,
     settingsDirty = false,
@@ -58,6 +59,7 @@
     api.settings().then((v) => {
       savedTheme = v.theme;
       autoCheckUpdates = v.auto_check_updates;
+      excludeBackgroundTime = v.exclude_background_time;
       skippedUpdateVersion = v.skipped_update_version;
       applyTheme(v.theme);
       settingsLoaded = true;
@@ -141,6 +143,7 @@
       {openGame}
       trackingActive={status.games.length > 0}
     />{:else if page === 'game'}<GameDetail
+      {excludeBackgroundTime}
       {gameId}
       onback={() => {
         page = gameReturnPage;
@@ -158,6 +161,7 @@
       onsaved={(settings) => {
         savedTheme = settings.theme;
         autoCheckUpdates = settings.auto_check_updates;
+        excludeBackgroundTime = settings.exclude_background_time;
         skippedUpdateVersion = settings.skipped_update_version;
       }}
     />{/if}

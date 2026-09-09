@@ -8,6 +8,7 @@
   import HistoryDataRow from './HistoryDataRow.svelte';
   import PlaytimeTrend from './PlaytimeTrend.svelte';
   import { api } from '../lib/api';
+  import { backgroundIntervalDescription } from '../lib/playtime';
   import { userErrorMessage } from '../lib/errors';
   import { formatDateKey } from '../lib/statistics';
   import { screenshotNavigation } from '../lib/screenshotNavigation';
@@ -38,6 +39,7 @@
     TrackingStatus,
   } from '../lib/types';
   export let gameId: number;
+  export let excludeBackgroundTime = true;
   export let onback: () => void;
   let game: GameDetail | null = null,
     sessions: Session[] = [],
@@ -280,7 +282,7 @@
     } catch {
       if (selected?.id === s.id) {
         intervalListError =
-          '除外区間を読み込めませんでした。モーダルを閉じて、もう一度お試しください。';
+          'バックグラウンド区間を読み込めませんでした。モーダルを閉じて、もう一度お試しください。';
       }
     }
   }
@@ -490,7 +492,7 @@
     } catch (e) {
       intervalEditError = userErrorMessage(
         e,
-        '除外区間を保存できませんでした。入力内容を確認して、もう一度お試しください。',
+        'バックグラウンド区間を保存できませんでした。入力内容を確認して、もう一度お試しください。',
       );
     } finally {
       savingIntervalId = null;
@@ -507,7 +509,7 @@
       cancelEditInterval();
       await load(true);
     } catch {
-      intervalEditError = '除外区間を削除できませんでした。もう一度お試しください。';
+      intervalEditError = 'バックグラウンド区間を削除できませんでした。もう一度お試しください。';
     } finally {
       savingIntervalId = null;
     }
@@ -542,7 +544,7 @@
     } catch (e) {
       newIntervalError = userErrorMessage(
         e,
-        '除外区間を追加できませんでした。入力内容を確認して、もう一度お試しください。',
+        'バックグラウンド区間を追加できませんでした。入力内容を確認して、もう一度お試しください。',
       );
     } finally {
       intervalCreating = false;
@@ -1292,12 +1294,12 @@
       <div class="danger-zone-item">
         <div>
           <strong>すべてのセッションを削除</strong>
-          <p>このゲームのセッションと、各セッションに含まれる除外時間を削除します。</p>
+          <p>このゲームのセッションと、各セッションに含まれるバックグラウンド時間を削除します。</p>
         </div>
         <DeleteButton
           label="すべてのセッションを削除"
           title="すべてのセッションを削除"
-          message={`${sessions.length}件のセッションと除外時間の記録をすべて削除します。元に戻せません。`}
+          message={`${sessions.length}件のセッションとバックグラウンド時間の記録をすべて削除します。元に戻せません。`}
           disabled={!sessions.length}
           onconfirm={removeAllSessions}
         />
@@ -1445,7 +1447,7 @@
             前回、アプリがゲームの終了を確認する前に計測が中断されたため、最後に記録できた時刻を終了日時として復旧しています。アプリやPCが予期せず終了した場合などに表示されます。
           </p>
           <p>
-            開始・終了日時と除外時間を確認し、必要なら編集してください。記録に問題がなければ確認済みにできます。
+            開始・終了日時とバックグラウンド時間を確認し、必要なら編集してください。記録に問題がなければ確認済みにできます。
           </p>
           <button
             class="primary"
@@ -1465,7 +1467,11 @@
           ></span
         >
         <span><small>プレイ時間</small><strong>{duration(selected.playtime_seconds)}</strong></span>
-        <span><small>除外時間</small><strong>{duration(selected.background_seconds)}</strong></span>
+        <span
+          ><small>バックグラウンド時間</small><strong
+            >{duration(selected.background_seconds)}</strong
+          ></span
+        >
       </div>
       <div class="session-breakdown session-date-breakdown">
         <span><small>開始日時</small><strong>{local(selected.launched_at)}</strong></span>
@@ -1479,15 +1485,15 @@
           onclick={beginSessionEdit}>セッションを編集</button
         ><DeleteButton
           title="セッションの削除"
-          message={`${local(selected.launched_at)} から始まるセッションを削除します。除外時間の記録も削除され、元に戻せません。`}
+          message={`${local(selected.launched_at)} から始まるセッションを削除します。バックグラウンド時間の記録も削除され、元に戻せません。`}
           disabled={sessionReviewSaving}
           onconfirm={removeSession}
         />
       </div>
       {#if sessionActionError}<p class="form-error" role="alert">{sessionActionError}</p>{/if}
-      <h3>プレイ時間から除外した時間</h3>
+      <h3>バックグラウンド区間</h3>
       <p class="hint">
-        アプリがバックグラウンドにあった区間です。起動時間からこの合計を除外します。
+        {backgroundIntervalDescription(excludeBackgroundTime)}
       </p>
       {#if intervalListError}<p class="form-error" role="alert">{intervalListError}</p>{/if}
       {#each intervals as i (i.id)}<HistoryDataRow
@@ -1500,7 +1506,7 @@
           onselect={() => beginEditInterval(i)}
         />{/each}
       <button type="button" disabled={sessionReviewSaving} onclick={beginAddInterval}
-        >除外区間を追加</button
+        >バックグラウンド区間を追加</button
       >
     </div>
   </div>{/if}
@@ -1577,7 +1583,7 @@
         disabled={savingIntervalId === editingIntervalId}
         onclick={cancelEditInterval}>×</button
       >
-      <h2 id="interval-editor-title">除外区間を編集</h2>
+      <h2 id="interval-editor-title">バックグラウンド区間を編集</h2>
       <p class="hint">
         セッション範囲：{local(selected.launched_at)} ～ {local(selected.exited_at)}
       </p>
@@ -1626,8 +1632,8 @@
           {#if intervalBeingEdited.ended_at}<DeleteButton
               className="interval-editor-delete"
               disabled={savingIntervalId === editingIntervalId}
-              title="除外区間の削除"
-              message={`${local(intervalBeingEdited.started_at)} から ${local(intervalBeingEdited.ended_at)} までの除外区間を削除します。該当時間がプレイ時間に加算され、元に戻せません。`}
+              title="バックグラウンド区間の削除"
+              message={`${local(intervalBeingEdited.started_at)} から ${local(intervalBeingEdited.ended_at)} までのバックグラウンド区間を削除します。区間の記録は元に戻せません。`}
               onconfirm={deleteEditingInterval}
             />{/if}
         </div>
@@ -1648,7 +1654,7 @@
         disabled={intervalCreating}
         onclick={cancelAddInterval}>×</button
       >
-      <h2 id="new-interval-title">除外区間を追加</h2>
+      <h2 id="new-interval-title">バックグラウンド区間を追加</h2>
       <p class="hint">
         セッション範囲：{local(selected.launched_at)} ～ {local(selected.exited_at)}
       </p>
