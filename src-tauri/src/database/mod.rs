@@ -262,7 +262,14 @@ impl Database {
         let c = self.0.lock();
         let mut q = c.prepare(&sql)?;
         let rows = q.query_map(
-            params![like, brand, brand, play_status, play_status],
+            params![
+                app_settings(&c)?.exclude_background_time,
+                like,
+                brand,
+                brand,
+                play_status,
+                play_status
+            ],
             game_row,
         )?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -285,6 +292,7 @@ impl Database {
             .query_row(
                 &format!("{} AND g.id=?", GAME_QUERY),
                 params![
+                    app_settings(&c)?.exclude_background_time,
                     "%",
                     Option::<String>::None,
                     Option::<String>::None,
@@ -322,8 +330,9 @@ impl Database {
     }
     pub fn list_sessions(&self, game: i64) -> Result<Vec<PlaySession>> {
         let c = self.0.lock();
-        let mut q=c.prepare("SELECT s.id,s.game_id,s.launched_at,s.exited_at,s.needs_review,MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER)-COALESCE(SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))),0)),COALESCE(SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))),0),CASE WHEN s.exited_at IS NULL THEN NULL ELSE CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER) END FROM play_sessions s LEFT JOIN background_intervals b ON b.play_session_id=s.id WHERE s.game_id=? GROUP BY s.id ORDER BY s.launched_at DESC")?;
-        Ok(q.query_map([game], |r| {
+        let exclude_background_time = app_settings(&c)?.exclude_background_time;
+        let mut q=c.prepare("SELECT s.id,s.game_id,s.launched_at,s.exited_at,s.needs_review,MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER)-?*COALESCE(SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))),0)),COALESCE(SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))),0),CASE WHEN s.exited_at IS NULL THEN NULL ELSE CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER) END FROM play_sessions s LEFT JOIN background_intervals b ON b.play_session_id=s.id WHERE s.game_id=? GROUP BY s.id ORDER BY s.launched_at DESC")?;
+        Ok(q.query_map(params![exclude_background_time, game], |r| {
             Ok(PlaySession {
                 id: r.get(0)?,
                 game_id: r.get(1)?,
@@ -525,7 +534,7 @@ impl Database {
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         if existing_end.is_some() != end.is_some() {
-            bail!("除外区間の記録状態は手動変更できません")
+            bail!("バックグラウンド区間の記録状態は手動変更できません")
         }
         validate_interval(&tx, "background_intervals", session, Some(id), start, end)?;
         tx.execute(
@@ -587,6 +596,7 @@ impl Database {
     }
     pub fn timestamps(&self, game: i64) -> Result<Vec<GameTimestamp>> {
         let c = self.0.lock();
+        let exclude_background_time = app_settings(&c)?.exclude_background_time;
         let mut query = c.prepare(
             "SELECT id,game_id,name,marked_at FROM game_timestamps WHERE game_id=? ORDER BY marked_at,id",
         )?;
@@ -597,8 +607,8 @@ impl Database {
         rows.into_iter()
             .map(|(id, game_id, name, marked_at)| {
                 let playtime_seconds: i64 = c.query_row(
-                    "SELECT MAX(0,COALESCE(SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(s.exited_at,?),?)) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))),0)-COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(b.ended_at,?),?)) AS INTEGER)-CAST(strftime('%s',MAX(b.started_at,s2.launched_at)) AS INTEGER))) FROM background_intervals b JOIN play_sessions s2 ON s2.id=b.play_session_id WHERE s2.game_id=? AND b.started_at<?),0)) FROM play_sessions s WHERE s.game_id=? AND s.launched_at<?",
-                    params![marked_at, marked_at, marked_at, marked_at, game_id, marked_at, game_id, marked_at],
+                    "SELECT MAX(0,COALESCE(SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(s.exited_at,?),?)) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))),0)-?*COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(b.ended_at,?),?)) AS INTEGER)-CAST(strftime('%s',MAX(b.started_at,s2.launched_at)) AS INTEGER))) FROM background_intervals b JOIN play_sessions s2 ON s2.id=b.play_session_id WHERE s2.game_id=? AND b.started_at<?),0)) FROM play_sessions s WHERE s.game_id=? AND s.launched_at<?",
+                    params![marked_at, marked_at, exclude_background_time, marked_at, marked_at, game_id, marked_at, game_id, marked_at],
                     |r| r.get(0),
                 )?;
                 let since_previous_seconds = (playtime_seconds - previous).max(0);
@@ -694,6 +704,7 @@ impl Database {
         let snapshot = Utc::now();
         let snapshot_text = snapshot.to_rfc3339();
         let connection = self.0.lock();
+        let exclude_background_time = app_settings(&connection)?.exclude_background_time;
         if let Some(game_id) = game_id {
             let game_exists: bool = connection.query_row(
                 "SELECT EXISTS(SELECT 1 FROM games WHERE id=?)",
@@ -801,7 +812,11 @@ impl Database {
             days,
             sessions,
             available_years,
+            exclude_background_time,
         ))
+    }
+    pub fn settings(&self) -> Result<AppSettings> {
+        app_settings(&self.0.lock())
     }
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
         Ok(self
@@ -1045,6 +1060,18 @@ fn local_day_start(date: NaiveDate) -> Result<i64> {
     bail!("ローカル日付の開始時刻を決定できません")
 }
 
+// Share settings decoding across commands and queries without relocking the connection.
+fn app_settings(connection: &Connection) -> Result<AppSettings> {
+    let value: Option<String> = connection
+        .query_row("SELECT value FROM settings WHERE key='app'", [], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    Ok(value
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default())
+}
+
 fn timestamp_seconds(value: &str) -> Result<i64> {
     Ok(DateTime::parse_from_rfc3339(value)
         .context("統計対象の日時が不正です")?
@@ -1060,6 +1087,7 @@ fn aggregate_statistics(
     day_boundaries: Vec<StatisticsDayBoundary>,
     sessions: Vec<RawStatisticsSession>,
     available_years: Vec<i32>,
+    exclude_background_time: bool,
 ) -> StatisticsReport {
     let mut day_values: Vec<StatisticsDayAccum> = day_boundaries
         .iter()
@@ -1093,7 +1121,13 @@ fn aggregate_statistics(
                     )
                 })
                 .sum();
-            let playtime = (running - background).max(0);
+            let playtime = (running
+                - if exclude_background_time {
+                    background
+                } else {
+                    0
+                })
+            .max(0);
             if playtime == 0 {
                 continue;
             }
@@ -1252,7 +1286,7 @@ fn trim_statistics_to_active_range(mut report: StatisticsReport) -> StatisticsRe
 }
 
 const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
-MAX(0,COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))) FROM play_sessions s WHERE s.game_id=g.id),0)-COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))) FROM background_intervals b JOIN play_sessions bs ON bs.id=b.play_session_id WHERE bs.game_id=g.id),0)) total_playtime_seconds,
+MAX(0,COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))) FROM play_sessions s WHERE s.game_id=g.id),0)-?*COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))) FROM background_intervals b JOIN play_sessions bs ON bs.id=b.play_session_id WHERE bs.game_id=g.id),0)) total_playtime_seconds,
 COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))) FROM play_sessions s WHERE s.game_id=g.id),0) total_running_seconds,
 (SELECT MAX(COALESCE(f.ended_at,f.started_at)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id) last_played,
 (SELECT COUNT(*) FROM play_sessions s WHERE s.game_id=g.id) session_count,
@@ -1463,6 +1497,14 @@ fn rebuild_focus_mirror(c: &Connection, session: i64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn set_background_exclusion(db: &Database, exclude: bool) {
+        let settings = AppSettings {
+            exclude_background_time: exclude,
+            ..db.settings().unwrap()
+        };
+        db.set_setting("app", &serde_json::to_string(&settings).unwrap())
+            .unwrap();
+    }
     fn game(db: &Database) -> i64 {
         db.create_game(
             &CreateGameInput {
@@ -1490,6 +1532,164 @@ mod tests {
         assert_eq!(x[0].total_playtime_seconds, 3600);
         assert_eq!(x[0].session_count, 1);
     }
+    #[test]
+    fn calculation_setting_recalculates_history_sorting_timestamps_and_statistics() {
+        let d = Database::memory().unwrap();
+        // Missing and older settings must keep the existing calculation.
+        assert!(d.settings().unwrap().exclude_background_time);
+        d.set_setting("app", r#"{"theme":"blue"}"#).unwrap();
+        assert!(d.settings().unwrap().exclude_background_time);
+        let g = game(&d);
+        let session = d
+            .manual_session(g, "2026-01-15T00:00:00Z", "2026-01-15T01:00:00Z")
+            .unwrap();
+        d.create_interval(session, "2026-01-15T00:15:00Z", "2026-01-15T00:45:00Z")
+            .unwrap();
+        d.create_timestamp(g, "途中", "2026-01-15T00:30:00Z")
+            .unwrap();
+        d.create_timestamp(g, "終盤", "2026-01-15T00:50:00Z")
+            .unwrap();
+        let other = d
+            .create_game(
+                &CreateGameInput {
+                    title: "Other".into(),
+                    brand: None,
+                    release_date: None,
+                    thumbnail_path: None,
+                    erogamescape_id: None,
+                    source_url: None,
+                    executable_paths: vec![],
+                },
+                None,
+            )
+            .unwrap();
+        d.manual_session(other, "2026-01-15T02:00:00Z", "2026-01-15T02:45:00Z")
+            .unwrap();
+        let original_intervals = serde_json::to_string(&d.intervals(session).unwrap()).unwrap();
+        let last_played = d.get_game(g).unwrap().summary.last_played;
+
+        for exclude in [true, false, true] {
+            set_background_exclusion(&d, exclude);
+            let expected = if exclude { 1_800 } else { 3_600 };
+            let detail = d.get_game(g).unwrap().summary;
+            assert_eq!(detail.total_playtime_seconds, expected);
+            assert_eq!(detail.total_running_seconds, 3_600);
+            assert_eq!(detail.last_played, last_played);
+            assert_eq!(detail.session_count, 1);
+            let sessions = d.list_sessions(g).unwrap();
+            assert_eq!(sessions[0].playtime_seconds, expected);
+            assert_eq!(sessions[0].background_seconds, 1_800);
+            assert_eq!(sessions[0].running_seconds, Some(3_600));
+            let games = d
+                .list_games("", None, None, "total_playtime", true)
+                .unwrap();
+            assert_eq!(games[0].id, if exclude { other } else { g });
+            let filtered = d
+                .list_games("A", Some("B"), Some("unplayed"), "total_playtime", false)
+                .unwrap();
+            assert_eq!(filtered.len(), 1);
+            assert_eq!(filtered[0].total_playtime_seconds, expected);
+            let timestamps = d.timestamps(g).unwrap();
+            assert_eq!(
+                timestamps[0].playtime_seconds,
+                if exclude { 900 } else { 1_800 }
+            );
+            assert_eq!(
+                timestamps[0].since_previous_seconds,
+                timestamps[0].playtime_seconds
+            );
+            assert_eq!(
+                timestamps[1].playtime_seconds,
+                if exclude { 1_200 } else { 3_000 }
+            );
+            assert_eq!(
+                timestamps[1].since_previous_seconds,
+                if exclude { 300 } else { 1_200 }
+            );
+            for kind in ["month", "year", "all"] {
+                let report = d
+                    .statistics(&StatisticsPeriodInput {
+                        kind: kind.into(),
+                        year: (kind != "all").then_some(2026),
+                        month: (kind == "month").then_some(1),
+                    })
+                    .unwrap();
+                assert_eq!(report.summary.total_playtime_seconds, expected + 2_700);
+                assert_eq!(report.summary.session_count, 2);
+                assert_eq!(report.summary.game_count, 2);
+                assert_eq!(
+                    report.summary.longest_session.unwrap().game_id,
+                    if exclude { other } else { g }
+                );
+                assert_eq!(
+                    report
+                        .days
+                        .iter()
+                        .map(|day| day.playtime_seconds)
+                        .sum::<i64>(),
+                    expected + 2_700
+                );
+                assert_eq!(
+                    report
+                        .games
+                        .iter()
+                        .map(|game| game.playtime_seconds)
+                        .sum::<i64>(),
+                    expected + 2_700
+                );
+            }
+            let game_report = d.game_statistics(g).unwrap();
+            assert_eq!(game_report.summary.total_playtime_seconds, expected);
+            assert_eq!(game_report.games.len(), 1);
+            assert_eq!(
+                serde_json::to_string(&d.intervals(session).unwrap()).unwrap(),
+                original_intervals
+            );
+            assert_eq!(d.settings().unwrap().theme, "blue");
+        }
+    }
+
+    #[test]
+    fn active_background_recording_and_timestamp_clipping_survive_setting_changes() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        let snapshot = Utc::now();
+        let start = (snapshot - chrono::Duration::minutes(10)).to_rfc3339();
+        let background_start = (snapshot - chrono::Duration::minutes(5)).to_rfc3339();
+        let marked_at = (snapshot - chrono::Duration::minutes(1)).to_rfc3339();
+        set_background_exclusion(&d, false);
+        let session = d.start_session(g, &start).unwrap();
+        let interval = d.start_interval(session, &background_start).unwrap();
+        d.create_timestamp(g, "記録中", &marked_at).unwrap();
+
+        for exclude in [false, true, false] {
+            set_background_exclusion(&d, exclude);
+            let recorded = d.list_sessions(g).unwrap().remove(0);
+            assert!(recorded.exited_at.is_none());
+            assert_eq!(recorded.running_seconds, None);
+            assert!(recorded.background_seconds >= 300);
+            assert_eq!(
+                recorded.playtime_seconds,
+                300 + if exclude {
+                    0
+                } else {
+                    recorded.background_seconds
+                }
+            );
+            let point = d.timestamps(g).unwrap().remove(0);
+            assert_eq!(point.playtime_seconds, if exclude { 300 } else { 540 });
+            let intervals = d.intervals(session).unwrap();
+            assert_eq!(intervals.len(), 1);
+            assert_eq!(intervals[0].id, interval);
+            assert!(intervals[0].ended_at.is_none());
+        }
+        d.end_session(session, &snapshot.to_rfc3339()).unwrap();
+        set_background_exclusion(&d, true);
+        let recorded = d.list_sessions(g).unwrap().remove(0);
+        assert_eq!(recorded.playtime_seconds, 300);
+        assert_eq!(recorded.background_seconds, 300);
+    }
+
     #[test]
     fn thumbnail_can_be_replaced_and_cleared() {
         let d = Database::memory().unwrap();
@@ -1788,6 +1988,7 @@ mod tests {
     #[test]
     fn legacy_focus_is_migrated_to_its_background_complement() {
         let d = Database::memory().unwrap();
+        set_background_exclusion(&d, false);
         let g = game(&d);
         let n = now();
         let c = d.0.lock();
@@ -1805,6 +2006,8 @@ mod tests {
             Some("2026-01-01T00:10:00Z")
         );
         assert_eq!(intervals[1].started_at, "2026-01-01T00:40:00Z");
+        assert_eq!(d.list_sessions(g).unwrap()[0].playtime_seconds, 3600);
+        set_background_exclusion(&d, true);
         assert_eq!(d.list_sessions(g).unwrap()[0].playtime_seconds, 1800);
         assert_eq!(d.migrate_focus_intervals().unwrap(), 0);
     }
@@ -1826,6 +2029,7 @@ mod tests {
     #[test]
     fn background_tracking_derives_playtime_and_keeps_focus_mirror() {
         let d = Database::memory().unwrap();
+        set_background_exclusion(&d, false);
         let g = game(&d);
         let session = d.start_session(g, "2026-01-01T00:00:00Z").unwrap();
         let background = d.start_interval(session, "2026-01-01T00:00:00Z").unwrap();
@@ -1839,6 +2043,8 @@ mod tests {
         d.end_interval(background, "2026-01-01T00:30:00Z").unwrap();
         d.end_session(session, "2026-01-01T00:30:00Z").unwrap();
 
+        assert_eq!(d.list_sessions(g).unwrap()[0].playtime_seconds, 1800);
+        set_background_exclusion(&d, true);
         let recorded = d.list_sessions(g).unwrap().remove(0);
         assert_eq!(recorded.running_seconds, Some(1800));
         assert_eq!(recorded.background_seconds, 1200);
@@ -1910,82 +2116,94 @@ mod tests {
     }
     #[test]
     fn statistics_split_sessions_and_background_by_day() {
-        let period = StatisticsPeriod {
-            kind: "month".into(),
-            year: Some(2026),
-            month: Some(1),
-            start_date: "2026-01-01".into(),
-            end_date: "2026-01-02".into(),
-            generated_at: "2026-01-03T00:00:00Z".into(),
-        };
-        let days = vec![
-            StatisticsDayBoundary {
-                date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
-                start: 0,
-                end: 86_400,
-            },
-            StatisticsDayBoundary {
-                date: NaiveDate::from_ymd_opt(2026, 1, 2).unwrap(),
-                start: 86_400,
-                end: 169_200,
-            },
-        ];
-        let sessions = vec![
-            RawStatisticsSession {
-                id: 10,
-                game_id: 1,
-                title: "Long game".into(),
-                brand: Some("Brand".into()),
-                thumbnail_path: None,
-                launched_at: "2026-01-01T23:00:00Z".into(),
-                exited_at: Some("2026-01-02T02:00:00Z".into()),
-                needs_review: true,
-                start: 82_800,
-                end: 93_600,
-                background: vec![(88_200, 90_000)],
-            },
-            RawStatisticsSession {
-                id: 11,
-                game_id: 2,
-                title: "Short game".into(),
-                brand: None,
-                thumbnail_path: None,
-                launched_at: "2026-01-02T03:00:00Z".into(),
-                exited_at: Some("2026-01-02T04:00:00Z".into()),
-                needs_review: false,
-                start: 97_200,
-                end: 100_800,
-                background: vec![],
-            },
-        ];
+        for exclude in [true, false] {
+            let period = StatisticsPeriod {
+                kind: "month".into(),
+                year: Some(2026),
+                month: Some(1),
+                start_date: "2026-01-01".into(),
+                end_date: "2026-01-02".into(),
+                generated_at: "2026-01-03T00:00:00Z".into(),
+            };
+            let days = vec![
+                StatisticsDayBoundary {
+                    date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+                    start: 0,
+                    end: 86_400,
+                },
+                StatisticsDayBoundary {
+                    date: NaiveDate::from_ymd_opt(2026, 1, 2).unwrap(),
+                    start: 86_400,
+                    end: 169_200,
+                },
+            ];
+            let sessions = vec![
+                RawStatisticsSession {
+                    id: 10,
+                    game_id: 1,
+                    title: "Long game".into(),
+                    brand: Some("Brand".into()),
+                    thumbnail_path: None,
+                    launched_at: "2026-01-01T23:00:00Z".into(),
+                    exited_at: Some("2026-01-02T02:00:00Z".into()),
+                    needs_review: true,
+                    start: 82_800,
+                    end: 93_600,
+                    background: vec![(88_200, 90_000)],
+                },
+                RawStatisticsSession {
+                    id: 11,
+                    game_id: 2,
+                    title: "Short game".into(),
+                    brand: None,
+                    thumbnail_path: None,
+                    launched_at: "2026-01-02T03:00:00Z".into(),
+                    exited_at: Some("2026-01-02T04:00:00Z".into()),
+                    needs_review: false,
+                    start: 97_200,
+                    end: 100_800,
+                    background: vec![],
+                },
+            ];
 
-        let report = aggregate_statistics(period, days, sessions, vec![2026]);
+            let report = aggregate_statistics(period, days, sessions, vec![2026], exclude);
 
-        assert_eq!(report.days[0].playtime_seconds, 3_600);
-        assert_eq!(report.days[1].playtime_seconds, 9_000);
-        assert_eq!(report.days[0].games[0].title, "Long game");
-        assert_eq!(report.days[0].games[0].thumbnail_path, None);
-        assert_eq!(report.days[1].games[0].title, "Long game");
-        assert_eq!(report.days[1].games[1].title, "Short game");
-        assert_eq!(report.summary.total_playtime_seconds, 12_600);
-        assert_eq!(
-            report
-                .games
-                .iter()
-                .map(|game| game.playtime_seconds)
-                .sum::<i64>(),
-            report.summary.total_playtime_seconds
-        );
-        assert_eq!(report.games[0].game_id, 1);
-        assert_eq!(report.games[0].playtime_seconds, 9_000);
-        assert_eq!(report.games[0].active_day_count, 2);
-        assert_eq!(report.summary.active_day_count, 2);
-        assert_eq!(report.summary.needs_review_session_count, 1);
-        assert_eq!(
-            report.summary.longest_session.as_ref().unwrap().session_id,
-            10
-        );
+            assert_eq!(report.days[0].playtime_seconds, 3_600);
+            assert_eq!(
+                report.days[1].playtime_seconds,
+                if exclude { 9_000 } else { 10_800 }
+            );
+            assert_eq!(report.days[0].games[0].title, "Long game");
+            assert_eq!(report.days[0].games[0].thumbnail_path, None);
+            assert_eq!(report.days[1].games[0].title, "Long game");
+            assert_eq!(report.days[1].games[1].title, "Short game");
+            assert_eq!(
+                report.summary.total_playtime_seconds,
+                if exclude { 12_600 } else { 14_400 }
+            );
+            assert_eq!(
+                report
+                    .games
+                    .iter()
+                    .map(|game| game.playtime_seconds)
+                    .sum::<i64>(),
+                report.summary.total_playtime_seconds
+            );
+            assert_eq!(report.games[0].game_id, 1);
+            assert_eq!(
+                report.games[0].playtime_seconds,
+                if exclude { 9_000 } else { 10_800 }
+            );
+            assert_eq!(report.games[0].active_day_count, 2);
+            assert_eq!(report.summary.active_day_count, 2);
+            assert_eq!(report.summary.needs_review_session_count, 1);
+            assert_eq!(
+                report.summary.longest_session.as_ref().unwrap().session_id,
+                10
+            );
+        }
     }
+
     #[test]
     fn statistics_command_uses_sessions_minus_background() {
         let database = Database::memory().unwrap();
@@ -2080,6 +2298,16 @@ mod tests {
         assert_eq!(report.summary.session_count, 1);
         assert_eq!(report.games.len(), 1);
         assert_eq!(report.games[0].game_id, game_id);
+        set_background_exclusion(&database, false);
+        let included = database.game_statistics(game_id).unwrap();
+        assert_eq!(included.period.start_date, "2026-01-08");
+        assert_eq!(included.period.end_date, "2026-01-12");
+        assert_eq!(included.days.len(), 5);
+        assert_eq!(included.summary.total_playtime_seconds, 10_800);
+        assert_eq!(included.summary.session_count, 3);
+        assert_eq!(included.summary.active_day_count, 3);
+        assert_eq!(included.games.len(), 1);
+        assert_eq!(included.games[0].game_id, game_id);
     }
     #[test]
     fn statistics_reject_future_periods() {

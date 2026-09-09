@@ -2,7 +2,7 @@
 
 ## Project overview
 
-- Windows 10/11 x64 専用の local-first desktop app。登録した visual novel の process/session 時間から background 時間を除いて playtime を記録する。
+- Windows 10/11 x64 専用の local-first desktop app。登録した visual novel の process/session 時間と background 時間を記録し、既定では background 時間を除いて playtime を算出する。
 - Stack は Tauri 2 / Rust 2024 / Svelte 5 / TypeScript / SQLite (`rusqlite`)。server、cloud account、workspace/monorepo はない。
 - 作業前にuser-facingな概要として [README.md](README.md)、開発・build情報として [docs/technical-notes.md](docs/technical-notes.md) を読む。追跡・データモデルの意図は [eroge-playtime-tracker-spec.md](eroge-playtime-tracker-spec.md) の sections 4–7、9–14、20 を参照する。仕様書内の directory tree は初期の「Suggested layout」であり、現行構成そのものではない。
 
@@ -92,7 +92,7 @@ npm run build
 
 - 1 launch = 1 `PlaySession`。同じ game に登録された launcher/game executable や関連 child process は game 単位でまとめ、PID 単位の session を作らない。
 - child process は、登録 executable の descendant かつその game directory 配下にある場合だけ関連付ける。DRM/global helper が session を開き続けないための制約である。
-- playtime の正本は `(session end - launch) - background intervals`。duration/aggregate を保存 field に変えず、timestamp から query 時に算出する。
+- playtime の正本は session と background interval の timestamp。`AppSettings.exclude_background_time`（既定 true）が true なら `(session end - launch) - background intervals`、false なら session 全体を query 時に算出する。設定にかかわらず background を記録し、過去履歴・並び順・timestamp累計・統計へ同じ設定を適用する。duration/aggregate を保存 field に変えない。
 - Background は「関連 process と visible top-level window があるが、その game が foreground ではない」期間だけ。window 出現前や消失後を Background にしない。process 終了時は最後の window-loss timestamp で session を閉じる。
 - foreground/window events と process-exit notification が主経路、3秒間隔の reconciliation が取りこぼし回復用。どちらか一方を前提にしない。
 - 複数 game の同時起動を許容する。foreground game 以外の visible/running games はそれぞれ独立して Background を持つ。
@@ -114,7 +114,7 @@ npm run build
 - testは現行のbehavior・invariant、または明示的に維持するmigration/backward compatibility処理を対象にする。fieldやfeatureを削除した際に、その不在だけをassertする恒久testを追加・維持しない。削除の完全性は変更時のrepository search、diff、build/checkで確認し、対応test、fixture、旧identifierも同時に整理する。明示的なcompatibility codeを残す場合だけ、そのcontractを検証するtestを維持する。
 - frontend unit tests は対象 helper と同じ `src/lib/*.test.ts` に置き、Vitest を使う。現在 UI/E2E test harness はない。
 - Rust unit tests は各 module 内の `#[cfg(test)]` に置く。DB tests は `Database::memory()`、metadata parser は network を使わない HTML fixture を使う。
-- DB/schema/集計変更では migration、interval validation、session-minus-background、legacy focus mirror をテストする。tracking変更では launcher重複、複数game、windowなし/foreground/background transition を `tracking/state.rs` の pure tests で覆う。
+- DB/schema/集計変更では migration、interval validation、両計算モードと切替後の再計算、legacy focus mirror をテストする。tracking変更では launcher重複、複数game、windowなし/foreground/background transition を `tracking/state.rs` の pure tests で覆う。
 
 ## Generated files, dependencies, and release
 

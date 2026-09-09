@@ -34,7 +34,7 @@ describe('validateRunningSessionEdit', () => {
     const intervals = [{ id: 1, start: '2026-08-29T10:15:00Z', end: '2026-08-29T10:30:00Z' }];
     expect(validateRunningSessionEdit('', intervals)).toBe('開始日時を入力してください。');
     expect(validateRunningSessionEdit('2026-08-29T10:20:00Z', intervals)).toBe(
-      '開始日時には、すべての除外区間を含む範囲を指定してください。',
+      '開始日時には、すべてのバックグラウンド区間を含む範囲を指定してください。',
     );
     expect(validateRunningSessionEdit('2026-08-29T10:00:00Z', intervals)).toBe('');
   });
@@ -68,10 +68,10 @@ describe('validateSessionEdit', () => {
 
   it('keeps existing intervals inside edited session bounds', () => {
     expect(validateSessionEdit('2026-08-29T10:20:00Z', '2026-08-29T11:00:00Z', intervals)).toBe(
-      '開始・終了日時には、すべての除外区間を含む範囲を指定してください。',
+      '開始・終了日時には、すべてのバックグラウンド区間を含む範囲を指定してください。',
     );
     expect(validateSessionEdit('2026-08-29T10:00:00Z', '2026-08-29T10:20:00Z', intervals)).toBe(
-      '開始・終了日時には、すべての除外区間を含む範囲を指定してください。',
+      '開始・終了日時には、すべてのバックグラウンド区間を含む範囲を指定してください。',
     );
   });
 
@@ -114,7 +114,7 @@ describe('validateBackgroundInterval', () => {
         session,
         intervals,
       ),
-    ).toBe('除外区間はセッションの開始・終了日時の範囲内で入力してください。');
+    ).toBe('バックグラウンド区間はセッションの開始・終了日時の範囲内で入力してください。');
   });
 
   it('rejects overlap but allows touching interval boundaries', () => {
@@ -125,7 +125,7 @@ describe('validateBackgroundInterval', () => {
         session,
         intervals,
       ),
-    ).toBe('既存の除外区間と重複しない日時を入力してください。');
+    ).toBe('既存のバックグラウンド区間と重複しない日時を入力してください。');
     expect(
       validateBackgroundInterval(
         '2026-08-29T11:00:00Z',
@@ -152,7 +152,7 @@ describe('validateBackgroundInterval', () => {
         { start: session.start, end: null },
         intervals,
       ),
-    ).toBe('既存の除外区間と重複しない日時を入力してください。');
+    ).toBe('既存のバックグラウンド区間と重複しない日時を入力してください。');
   });
 
   it('ignores the edited interval when checking overlap', () => {

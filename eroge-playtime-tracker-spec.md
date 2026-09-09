@@ -10,9 +10,9 @@
 Create a Windows desktop application that:
 
 - Tracks play sessions for registered games.
-- Counts play time as **session running time minus background time**.
+- Counts play time as **session running time minus background time** by default, with an app-wide setting to include background time.
 - Records one logical `PlaySession` per game launch.
-- Preserves the excluded background periods inside that launch as `BackgroundInterval` records.
+- Always preserves background periods inside that launch as `BackgroundInterval` records, regardless of the calculation setting.
 - Lets the user review and edit recorded sessions later.
 - Retrieves game metadata such as title, brand, release date, and thumbnail from ErogameScape (批評空間).
 - Lets the user filter games by brand and sort by values such as total play time and last played time.
@@ -208,7 +208,7 @@ BackgroundInterval
 - updated_at
 ```
 
-The play time of a session is:
+With the default `exclude_background_time = true`, the play time of a session is:
 
 ```text
 (PlaySession.exited_at - PlaySession.launched_at)
@@ -217,10 +217,12 @@ The play time of a session is:
 
 The total play time of a game is the sum across all of its sessions.
 
-This model intentionally preserves both:
+With `exclude_background_time = false`, use the entire session duration without subtracting background intervals. Apply the saved setting to existing history as well as active sessions, substituting the current time for an open end. Never stop recording background intervals or persist a calculated duration when this setting changes.
+
+This model intentionally preserves:
 
 - total process/session time;
-- excluded background time;
+- recorded background time;
 - derived play time.
 
 Example:
@@ -245,11 +247,11 @@ Playtime:            1h 40m
 
 ### 5.1 Primary rule
 
-The preferred play-time definition is:
+The default play-time definition is:
 
 > Start with the time for which the game session existed, then exclude periods in which the game was in the background.
 
-A game can remain running in the background, but that period is recorded as excluded time.
+A game can remain running in the background. Always record that period, including when `exclude_background_time = false`; the setting changes calculation only, not tracking state or interval recording.
 
 ### 5.2 Foreground-window detection
 
@@ -350,7 +352,7 @@ For a game, show at minimum:
 - launch/start datetime;
 - exit/end datetime;
 - derived play time;
-- excluded background time;
+- recorded background time;
 - process/session duration.
 
 ### Session editing
@@ -362,7 +364,7 @@ Allow editing:
 
 ### Background interval editing
 
-Because background intervals are the source of truth for excluded time, provide a detailed session view that allows:
+Because background intervals are the source of truth for background time regardless of calculation settings, provide a detailed session view that allows:
 
 - adding a background interval;
 - editing start/end of a background interval;
@@ -386,7 +388,7 @@ For a simple manual entry, it is acceptable to create:
 
 ### Legacy compatibility
 
-Keep the original `focus_intervals` table for rollback compatibility. Existing focus data is migrated by storing its complement inside each closed session as `background_intervals`. New tracking and manual edits keep `focus_intervals` updated as a compatibility mirror, while all current-version calculations use sessions minus background intervals.
+Keep the original `focus_intervals` table for rollback compatibility. Existing focus data is migrated by storing its complement inside each closed session as `background_intervals`. New tracking and manual edits keep `focus_intervals` updated as a compatibility mirror, while current-version calculations use session durations with optional background subtraction. The compatibility mirror and migration's session-minus-background validation must not depend on the calculation setting.
 
 ---
 
@@ -551,6 +553,12 @@ Support optional launch at Windows sign-in using an appropriate Tauri 2 plugin o
 
 Default may be off for the first build.
 
+### 8.8 Play-time calculation setting
+
+Provide an app-wide checkbox labeled `バックグラウンド時間をプレイ時間から除外する`, enabled by default. Save it as `AppSettings.exclude_background_time` in the existing settings JSON. Missing fields in older JSON default to `true`; backup export/import preserves the setting.
+
+Saving applies to all games and existing history without a restart. Use neutral labels such as `バックグラウンド時間` and `バックグラウンド区間` for recorded data. Explain whether the current setting subtracts or includes these periods, and that recording continues in both modes. Deletion confirmations must not promise that deleting an interval always increases play time.
+
 ---
 
 ## 9. Tauri command boundary
@@ -641,10 +649,14 @@ Derive:
 
 ### Total play time
 
+When background exclusion is enabled (the default):
+
 ```text
 SUM(all PlaySession durations for game)
 - SUM(all BackgroundInterval durations for game)
 ```
+
+When disabled, use only the sum of session durations. Use the same saved setting for game lists/details and sorting, session history, timestamp cumulative/difference values, and both app-wide and per-game statistics. Count background-only days/sessions in statistics when their time is included. The last-played definition below is independent of this setting.
 
 ### Last played time
 
@@ -861,13 +873,13 @@ The first usable release is complete when all of the following work:
 2. A game can be registered manually.
 3. Multiple executable paths can be attached to one game.
 4. Starting a registered game creates one `PlaySession`.
-5. The game accumulates play time only while one of its registered executables owns the foreground window.
-6. Alt-Tabbing away stops active play-time accumulation.
-7. Returning to the game resumes accumulation inside the same launch session.
+5. By default, visible-game background periods do not accumulate play time.
+6. Alt-Tabbing away records background time; whether that time contributes to play time follows the saved setting.
+7. Returning to the game ends the background interval inside the same launch session.
 8. Exiting the game closes the session.
 9. Session history can be viewed.
-10. Session and focus-interval data can be edited.
-11. Total play time is derived correctly from session time minus background time.
+10. Session and background-interval data can be edited.
+11. Total play time is derived correctly in both modes, including past sessions, open sessions, timestamps, sorting, and statistics. Toggling the setting never discards background records.
 12. Games can be filtered by brand.
 13. Games can be sorted by total play time and last played time.
 14. Game metadata can be populated from ErogameScape by URL or ID.
@@ -902,7 +914,7 @@ These decisions are intentional and should not be casually changed during implem
 
 1. **Rust + Tauri 2 + Svelte + TypeScript** is the selected stack.
 2. **SQLite + rusqlite** is the selected local persistence approach.
-3. Foreground time is the primary play-time metric.
+3. Session time minus background time is the default play-time metric. Users may include background time without changing how it is recorded.
 4. A launch is represented by `PlaySession`.
 5. Background periods inside a launch are represented by `BackgroundInterval`.
 6. A game can have multiple registered executables.

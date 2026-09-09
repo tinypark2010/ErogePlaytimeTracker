@@ -161,6 +161,7 @@ pub struct AppSettings {
     pub auto_check_updates: bool,
     pub skipped_update_version: Option<String>,
     pub close_to_tray: bool,
+    pub exclude_background_time: bool,
     pub theme: String,
     pub screenshot_hotkey: String,
     pub ocr_search_hotkey: String,
@@ -172,6 +173,7 @@ impl Default for AppSettings {
             auto_check_updates: true,
             skipped_update_version: None,
             close_to_tray: true,
+            exclude_background_time: true,
             theme: "dark".into(),
             screenshot_hotkey: String::new(),
             ocr_search_hotkey: String::new(),
@@ -190,8 +192,19 @@ mod settings_tests {
         .unwrap();
 
         assert!(settings.auto_check_updates);
+        assert!(settings.exclude_background_time);
         assert_eq!(settings.skipped_update_version, None);
         assert!(settings.ocr_search_hotkey.is_empty());
+    }
+
+    #[test]
+    fn background_calculation_setting_defaults_to_exclusion_and_preserves_opt_out() {
+        assert!(AppSettings::default().exclude_background_time);
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"exclude_background_time":false}"#).unwrap();
+        let restored: AppSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert!(!restored.exclude_background_time);
     }
 }
 #[derive(Debug, Clone, Serialize)]
