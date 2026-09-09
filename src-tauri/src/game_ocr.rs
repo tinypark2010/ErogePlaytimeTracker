@@ -1,22 +1,33 @@
+mod input;
+#[cfg(test)]
+mod native_tests;
+
 use crate::{models::ScreenshotOcrRegion, ocr, screenshot, tracking::TrackingService};
 use image::DynamicImage;
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicBool, Ordering},
+use input::{Input, Selection};
+use std::{
+    cell::Cell,
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
 };
+use tauri::{AppHandle, Emitter};
 use windows::{
     Win32::{
-        Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
-        Graphics::Gdi::*,
+        Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Graphics::{Dwm::DwmFlush, Gdi::*},
         System::LibraryLoader::GetModuleHandleW,
         UI::{
-            HiDpi::*,
-            Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
-            WindowsAndMessaging::*,
+            Accessibility::*, HiDpi::*, Input::KeyboardAndMouse::VK_ESCAPE, WindowsAndMessaging::*,
         },
     },
-    core::{PCWSTR, w},
+    core::w,
 };
+
+const WM_SELECTION_INPUT: u32 = WM_APP + 1;
+thread_local! { static ACTIVE: Cell<*mut Overlay> = const { Cell::new(std::ptr::null_mut()) }; }
 
 struct BusyGuard(Arc<AtomicBool>);
 impl Drop for BusyGuard {
@@ -25,44 +36,39 @@ impl Drop for BusyGuard {
     }
 }
 
-pub fn start(tracker: TrackingService, busy: Arc<AtomicBool>) {
+pub fn start(app: AppHandle, tracker: TrackingService, busy: Arc<AtomicBool>) {
     if busy.swap(true, Ordering::AcqRel) {
         return;
     }
     std::thread::spawn(move || {
         let _guard = BusyGuard(busy);
-        // Capture, positioning and mouse coordinates must all use physical pixels.
         unsafe {
             SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
         if let Err(message) = search_focused(&tracker) {
-            let message: Vec<_> = message.encode_utf16().chain(Some(0)).collect();
-            unsafe {
-                MessageBoxW(
-                    None,
-                    PCWSTR(message.as_ptr()),
-                    w!("ゲーム画面のOCR検索"),
-                    MB_OK | MB_ICONINFORMATION | MB_TOPMOST,
-                );
-            }
+            // A modal message box would steal focus from an exclusive-fullscreen game too.
+            let _ = app.emit("game-ocr-error", message);
         }
     });
 }
 
 fn search_focused(tracker: &TrackingService) -> Result<(), &'static str> {
-    let frame = screenshot::capture_game(tracker).map_err(|error| {
-        if error.to_string() == "フォアグラウンドで計測中のゲームがありません"
-        {
-            "フォアグラウンドで計測中のゲームがありません。"
-        } else {
-            "ゲーム画面を読み取れませんでした。ウィンドウ表示でお試しください。"
-        }
-    })?;
-    let region = select_region(&frame.image, frame.origin, frame.hwnd)
+    let target = screenshot::focused_target(tracker)
+        .map_err(|_| "前面の計測中ゲームを確認できませんでした。ゲーム画面でお試しください。")?;
+    let region = select_region(target.hwnd, target.bounds, target.size)
         .map_err(|_| "範囲選択を開始できませんでした。ウィンドウ表示でお試しください。")?;
     let Some(region) = region else {
         return Ok(());
     };
+    // Capture only after removing the outline, and never use another game's frame.
+    if !target.is_current() {
+        return Ok(());
+    }
+    let frame = screenshot::capture_game(tracker)
+        .map_err(|_| "ゲーム画面を読み取れませんでした。ウィンドウ表示でお試しください。")?;
+    if frame.target != target {
+        return Ok(());
+    }
     let result = ocr::recognize_image(DynamicImage::ImageRgba8(frame.image), Some(region))
         .map_err(|e| e.user_message())?;
     let url = search_url(&result.text)
@@ -79,125 +85,271 @@ fn search_url(text: &str) -> Option<String> {
     Some(url.into())
 }
 
-#[derive(Default)]
-struct Selection {
-    closing: bool,
-    start: Option<(i32, i32)>,
-    end: (i32, i32),
-    size: (i32, i32),
-    pixels: Vec<u8>,
-    result: Option<ScreenshotOcrRegion>,
+struct Overlay {
+    hwnd: HWND,
+    game: HWND,
+    selection: Selection,
+    size: (u32, u32),
+    hidden_at: Option<Instant>,
 }
-impl Selection {
-    fn cancel(&mut self) {
-        self.closing = true;
-        self.start = None;
-        self.result = None;
-    }
-    fn point(&self, param: LPARAM) -> (i32, i32) {
-        (
-            (param.0 as i16 as i32).clamp(0, self.size.0),
-            ((param.0 >> 16) as i16 as i32).clamp(0, self.size.1),
-        )
-    }
-    fn rect(&self) -> Option<RECT> {
-        let (x, y) = self.start?;
-        Some(RECT {
-            left: x.min(self.end.0),
-            top: y.min(self.end.1),
-            right: x.max(self.end.0),
-            bottom: y.max(self.end.1),
-        })
-    }
-    fn region(&self) -> Option<ScreenshotOcrRegion> {
-        let rect = self.rect()?;
-        if rect.right - rect.left < 2 || rect.bottom - rect.top < 2 {
-            return None;
+
+struct Window(HWND);
+impl Drop for Window {
+    fn drop(&mut self) {
+        unsafe {
+            if IsWindow(Some(self.0)).as_bool() {
+                let _ = DestroyWindow(self.0);
+            }
         }
-        let x = f64::from(rect.left) / f64::from(self.size.0);
-        let y = f64::from(rect.top) / f64::from(self.size.1);
-        Some(ScreenshotOcrRegion {
-            x,
-            y,
-            width: f64::from(rect.right) / f64::from(self.size.0) - x,
-            height: f64::from(rect.bottom) / f64::from(self.size.1) - y,
-        })
     }
 }
 
-fn select_region(
-    image: &image::RgbaImage,
-    origin: POINT,
-    game: HWND,
-) -> anyhow::Result<Option<ScreenshotOcrRegion>> {
-    static CLASS: OnceLock<bool> = OnceLock::new();
-    let instance = unsafe { GetModuleHandleW(None)? };
-    let registered = CLASS.get_or_init(|| unsafe {
-        RegisterClassW(&WNDCLASSW {
-            lpfnWndProc: Some(window_proc),
-            hInstance: instance.into(),
-            lpszClassName: w!("EptOcrSelection"),
-            hCursor: LoadCursorW(None, IDC_CROSS).unwrap_or_default(),
-            ..Default::default()
-        }) != 0
-    });
-    anyhow::ensure!(*registered, "OCR selection window class unavailable");
-    let mut pixels = image.as_raw().clone();
-    for pixel in pixels.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
+// All callbacks run on this selection thread, which keeps pumping messages.
+// The guards are dropped before capture/OCR so expensive work cannot stall hooks.
+#[derive(Default)]
+struct Hooks {
+    mouse: HHOOK,
+    keyboard: HHOOK,
+    foreground: HWINEVENTHOOK,
+}
+impl Hooks {
+    unsafe fn install(data: *mut Overlay) -> windows::core::Result<Self> {
+        let mut hooks = Self::default();
+        unsafe {
+            ACTIVE.set(data);
+            let instance = GetModuleHandleW(None)?;
+            hooks.mouse =
+                SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook), Some(instance.into()), 0)?;
+            hooks.keyboard = SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                Some(keyboard_hook),
+                Some(instance.into()),
+                0,
+            )?;
+            hooks.foreground = SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND,
+                EVENT_SYSTEM_FOREGROUND,
+                None,
+                Some(foreground_changed),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            );
+            if hooks.foreground.is_invalid() {
+                return Err(windows::core::Error::from_win32());
+            }
+        }
+        Ok(hooks)
     }
-    let mut selection = Box::new(Selection {
-        size: (image.width() as i32, image.height() as i32),
-        pixels,
-        ..Default::default()
+}
+impl Drop for Hooks {
+    fn drop(&mut self) {
+        unsafe {
+            ACTIVE.set(std::ptr::null_mut());
+            if !self.foreground.is_invalid() {
+                let _ = UnhookWinEvent(self.foreground);
+            }
+            if !self.keyboard.is_invalid() {
+                let _ = UnhookWindowsHookEx(self.keyboard);
+            }
+            if !self.mouse.is_invalid() {
+                let _ = UnhookWindowsHookEx(self.mouse);
+            }
+        }
+    }
+}
+
+fn route_input(input: Input) -> bool {
+    let foreground = unsafe { GetForegroundWindow() };
+    ACTIVE.with(|slot| unsafe {
+        let data = slot.get();
+        if data.is_null() {
+            return false;
+        }
+        if foreground != (*data).game {
+            (*data).selection.cancel();
+        }
+        let consumed = (*data).selection.handle(input);
+        // Mouse moves are painted by the timer, avoiding a queue per raw event.
+        if !matches!(input, Input::Move(_)) || (*data).selection.closing {
+            let _ = PostMessageW(Some((*data).hwnd), WM_SELECTION_INPUT, WPARAM(0), LPARAM(0));
+        }
+        consumed
+    })
+}
+
+unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        if code == HC_ACTION as i32 {
+            let point = (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt;
+            let input = match wparam.0 as u32 {
+                WM_MOUSEMOVE => Some(Input::Move(point)),
+                WM_LBUTTONDOWN => Some(Input::LeftDown(point)),
+                WM_LBUTTONUP => Some(Input::LeftUp(point)),
+                WM_RBUTTONDOWN => Some(Input::RightDown(point)),
+                WM_RBUTTONUP => Some(Input::RightUp),
+                _ => None,
+            };
+            if input.is_some_and(route_input) {
+                return LRESULT(1);
+            }
+        }
+        CallNextHookEx(None, code, wparam, lparam)
+    }
+}
+
+unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        // Inspect only Esc. Other keys (including Alt+Tab and hotkey releases) pass through.
+        if code == HC_ACTION as i32
+            && (*(lparam.0 as *const KBDLLHOOKSTRUCT)).vkCode == u32::from(VK_ESCAPE.0)
+        {
+            let input = match wparam.0 as u32 {
+                WM_KEYDOWN | WM_SYSKEYDOWN => Some(Input::EscapeDown),
+                WM_KEYUP | WM_SYSKEYUP => Some(Input::EscapeUp),
+                _ => None,
+            };
+            if input.is_some_and(route_input) {
+                return LRESULT(1);
+            }
+        }
+        CallNextHookEx(None, code, wparam, lparam)
+    }
+}
+
+unsafe extern "system" fn foreground_changed(
+    _: HWINEVENTHOOK,
+    _: u32,
+    hwnd: HWND,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+) {
+    ACTIVE.with(|slot| unsafe {
+        let data = slot.get();
+        if !data.is_null() && hwnd != (*data).game {
+            (*data).selection.cancel();
+            let _ = PostMessageW(Some((*data).hwnd), WM_SELECTION_INPUT, WPARAM(0), LPARAM(0));
+        }
     });
-    // The Box stays alive until the window is destroyed. No Rust reference is held
-    // across APIs that synchronously re-enter window_proc.
-    let hwnd = unsafe {
-        CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-            w!("EptOcrSelection"),
-            w!("範囲を選択してGoogle検索"),
+}
+
+fn select_region(
+    game: HWND,
+    bounds: RECT,
+    size: (u32, u32),
+) -> anyhow::Result<Option<ScreenshotOcrRegion>> {
+    let result = unsafe {
+        static CLASS: OnceLock<u16> = OnceLock::new();
+        let instance = GetModuleHandleW(None)?;
+        let class = w!("EptOcrSelection");
+        let atom = CLASS.get_or_init(|| {
+            RegisterClassW(&WNDCLASSW {
+                lpfnWndProc: Some(window_proc),
+                hInstance: instance.into(),
+                hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
+                lpszClassName: class,
+                ..Default::default()
+            })
+        });
+        anyhow::ensure!(*atom != 0, "selection class registration failed");
+        let mut data = Box::new(Overlay {
+            hwnd: HWND::default(),
+            game,
+            selection: Selection::new(bounds, size),
+            size,
+            hidden_at: None,
+        });
+        let ptr = &mut *data as *mut Overlay;
+        let window = Window(CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            class,
+            w!("OCR"),
             WS_POPUP,
-            origin.x,
-            origin.y,
-            selection.size.0,
-            selection.size.1,
+            bounds.left,
+            bounds.top,
+            bounds.right - bounds.left,
+            bounds.bottom - bounds.top,
             None,
             None,
             Some(instance.into()),
-            Some((&mut *selection as *mut Selection).cast()),
-        )?
-    };
-    unsafe {
-        let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = SetForegroundWindow(hwnd);
-    }
-    if unsafe { GetForegroundWindow() } != hwnd {
-        unsafe {
-            let _ = DestroyWindow(hwnd);
+            Some(ptr.cast()),
+        )?);
+        (*ptr).hwnd = window.0;
+        SetLayeredWindowAttributes(window.0, COLORREF(0), 255, LWA_COLORKEY)?;
+        let _hooks = Hooks::install(ptr)?;
+        anyhow::ensure!(
+            SetTimer(Some(window.0), 1, 20, None) != 0,
+            "selection timer failed"
+        );
+        if game != GetForegroundWindow() {
+            return Ok(None);
         }
-        anyhow::bail!("OCR selection could not receive focus");
-    }
-    let mut message = MSG::default();
-    while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
-        unsafe {
+        // Never activate, capture the mouse, restore focus, or change display mode.
+        SetWindowPos(
+            window.0,
+            Some(HWND_TOPMOST),
+            bounds.left,
+            bounds.top,
+            bounds.right - bounds.left,
+            bounds.bottom - bounds.top,
+            SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        )?;
+        refresh_overlay(window.0, ptr);
+        let mut message = MSG::default();
+        loop {
+            let received = GetMessageW(&mut message, None, 0, 0).0;
+            anyhow::ensure!(received != -1, "selection message loop failed");
+            if received == 0 {
+                break;
+            }
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
         }
+        (*ptr).selection.result.take()
+    };
+    // Flush removal before CAPTUREBLT, otherwise the outline could enter the OCR crop.
+    unsafe {
+        let _ = DwmFlush();
     }
-    // Error/quit paths must not leave a native window pointing into freed memory.
-    if unsafe { IsWindow(Some(hwnd)) }.as_bool() {
-        unsafe {
-            let _ = DestroyWindow(hwnd);
+    Ok(result)
+}
+
+unsafe fn refresh_overlay(hwnd: HWND, data: *mut Overlay) {
+    unsafe {
+        if GetForegroundWindow() != (*data).game
+            || screenshot::client_geometry((*data).game).ok()
+                != Some(((*data).selection.bounds, (*data).size))
+        {
+            (*data).selection.cancel();
+        }
+        if (*data).selection.closing {
+            if (*data).hidden_at.is_none() {
+                (*data).hidden_at = Some(Instant::now());
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE | SWP_HIDEWINDOW,
+                );
+            }
+            // Drain the intercepted press/release pairs even though the frame is already hidden.
+            // A desktop switch or lost hook must not leave a busy selection thread forever.
+            if (*data).selection.drained()
+                || (*data)
+                    .hidden_at
+                    .is_some_and(|at| at.elapsed() >= Duration::from_secs(10))
+            {
+                let _ = DestroyWindow(hwnd);
+            }
+        } else {
+            let _ = InvalidateRect(Some(hwnd), None, false);
         }
     }
-    if selection.result.is_some() && unsafe { GetForegroundWindow() }.is_invalid() {
-        unsafe {
-            let _ = SetForegroundWindow(game);
-        }
-    }
-    Ok(selection.result)
 }
 
 unsafe extern "system" fn window_proc(
@@ -206,72 +358,34 @@ unsafe extern "system" fn window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    // All state is confined to the overlay thread. Destruction never frees the Box;
-    // select_region owns it and waits for WM_QUIT before reading the result.
     unsafe {
         if message == WM_NCCREATE {
             let create = &*(lparam.0 as *const CREATESTRUCTW);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
         }
-        let data = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Selection;
+        let data = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Overlay;
         if data.is_null() {
             return DefWindowProcW(hwnd, message, wparam, lparam);
         }
         match message {
+            WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+            WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
+            WM_TIMER | WM_SELECTION_INPUT => {
+                refresh_overlay(hwnd, data);
+                LRESULT(0)
+            }
+            WM_DISPLAYCHANGE | WM_DPICHANGED | WM_CLOSE => {
+                (*data).selection.cancel();
+                refresh_overlay(hwnd, data);
+                LRESULT(0)
+            }
             WM_PAINT => {
-                paint(hwnd, &*data);
+                // Native painting can dispatch hooks; do not borrow live state across it.
+                let selection = (*data).selection.clone();
+                paint(hwnd, &selection);
                 LRESULT(0)
             }
             WM_ERASEBKGND => LRESULT(1),
-            WM_LBUTTONDOWN if !(*data).closing => {
-                (*data).start = Some((*data).point(lparam));
-                (*data).end = (*data).point(lparam);
-                SetCapture(hwnd);
-                let _ = InvalidateRect(Some(hwnd), None, false);
-                LRESULT(0)
-            }
-            WM_MOUSEMOVE if (*data).start.is_some() => {
-                (*data).end = (*data).point(lparam);
-                let _ = InvalidateRect(Some(hwnd), None, false);
-                LRESULT(0)
-            }
-            WM_LBUTTONUP if (*data).start.is_some() => {
-                (*data).end = (*data).point(lparam);
-                (*data).result = (*data).region();
-                (*data).start = None;
-                let _ = ReleaseCapture();
-                if (*data).result.is_some() {
-                    (*data).closing = true;
-                    let _ = DestroyWindow(hwnd);
-                } else {
-                    let _ = InvalidateRect(Some(hwnd), None, false);
-                }
-                LRESULT(0)
-            }
-            WM_KEYDOWN | WM_SYSKEYDOWN if wparam.0 == 0x1b => {
-                (*data).cancel();
-                let _ = DestroyWindow(hwnd);
-                LRESULT(0)
-            }
-            WM_KILLFOCUS => {
-                // Queue cancellation rather than recursively destroying a window
-                // that may already be inside DestroyWindow's focus transition.
-                if !(*data).closing {
-                    (*data).cancel();
-                    let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
-                LRESULT(0)
-            }
-            WM_RBUTTONDOWN | WM_CLOSE => {
-                (*data).cancel();
-                let _ = DestroyWindow(hwnd);
-                LRESULT(0)
-            }
-            WM_CAPTURECHANGED if (*data).start.is_some() => {
-                (*data).start = None;
-                let _ = InvalidateRect(Some(hwnd), None, false);
-                LRESULT(0)
-            }
             WM_DESTROY => {
                 PostQuitMessage(0);
                 LRESULT(0)
@@ -289,41 +403,33 @@ fn paint(hwnd: HWND, selection: &Selection) {
     unsafe {
         let mut paint = PAINTSTRUCT::default();
         let dc = BeginPaint(hwnd, &mut paint);
-        let (width, height) = selection.size;
-        let info = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: width,
-                biHeight: -height,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0,
-                ..Default::default()
-            },
+        let mut view = RECT {
+            right: selection.bounds.right - selection.bounds.left,
+            bottom: selection.bounds.bottom - selection.bounds.top,
             ..Default::default()
         };
-        StretchDIBits(
-            dc,
-            0,
-            0,
-            width,
-            height,
-            0,
-            0,
-            width,
-            height,
-            Some(selection.pixels.as_ptr().cast()),
-            &info,
-            DIB_RGB_COLORS,
-            SRCCOPY,
-        );
+        // Black is the transparent color key, not a replacement game image.
+        FillRect(dc, &view, HBRUSH(GetStockObject(BLACK_BRUSH).0));
+        let scale = (GetDpiForWindow(hwnd) as i32).max(96);
         if let Some(rect) = selection.rect() {
-            let brush = CreateSolidBrush(COLORREF(0x00e6a030));
-            FrameRect(dc, &rect, brush);
-            let _ = DeleteObject(brush.into());
+            let previous_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
+            for (width, color) in [(5, 0x00202020), (2, 0x00e6a030)] {
+                let pen = CreatePen(PS_SOLID, width * scale / 96, COLORREF(color));
+                let previous_pen = SelectObject(dc, pen.into());
+                let _ = Rectangle(
+                    dc,
+                    rect.left - selection.bounds.left,
+                    rect.top - selection.bounds.top,
+                    rect.right - selection.bounds.left,
+                    rect.bottom - selection.bounds.top,
+                );
+                SelectObject(dc, previous_pen);
+                let _ = DeleteObject(pen.into());
+            }
+            SelectObject(dc, previous_brush);
         }
         let mut font = LOGFONTW {
-            lfHeight: -(20 * GetDpiForWindow(hwnd) as i32 / 96),
+            lfHeight: -(18 * scale / 96),
             ..Default::default()
         };
         for (slot, character) in font
@@ -337,10 +443,18 @@ fn paint(hwnd: HWND, selection: &Selection) {
         let previous = SelectObject(dc, font.into());
         SetBkColor(dc, COLORREF(0x00202020));
         SetTextColor(dc, COLORREF(0x00ffffff));
-        let hint: Vec<_> = " ドラッグして範囲を選択 → Google検索 ／ Esc・右クリックで中止 "
+        let mut hint: Vec<_> = " ドラッグして範囲を選択 → Google検索 ／ Esc・右クリックで中止 "
             .encode_utf16()
             .collect();
-        let _ = TextOutW(dc, 8, 8, &hint);
+        view.left = 8;
+        view.top = 8;
+        view.right -= 8;
+        DrawTextW(
+            dc,
+            &mut hint,
+            &mut view,
+            DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+        );
         SelectObject(dc, previous);
         let _ = DeleteObject(font.into());
         let _ = EndPaint(hwnd, &paint);
@@ -352,51 +466,9 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "interactive Windows overlay and OCR smoke test"]
-    fn native_overlay_smoke() {
-        unsafe {
-            SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        }
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/images/library.png");
-        let image = image::open(path).unwrap().into_rgba8();
-        let game = unsafe { GetForegroundWindow() };
-        fn wait_for_hotkey() {
-            use windows::Win32::UI::Input::KeyboardAndMouse::*;
-            unsafe {
-                RegisterHotKey(None, 99, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, 0x7a).unwrap();
-            }
-            println!("Press Ctrl+Shift+F11 to open the test overlay.");
-            let mut message = MSG::default();
-            while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
-                if message.message == WM_HOTKEY && message.wParam.0 == 99 {
-                    break;
-                }
-            }
-            unsafe {
-                UnregisterHotKey(None, 99).unwrap();
-            }
-        }
-        println!("Cancel the first overlay with Escape; select text in the second overlay.");
-        wait_for_hotkey();
-        assert!(
-            select_region(&image, POINT { x: 80, y: 80 }, game)
-                .unwrap()
-                .is_none()
-        );
-        wait_for_hotkey();
-        let region = select_region(&image, POINT { x: 80, y: 80 }, game)
-            .unwrap()
-            .unwrap();
-        let result = ocr::recognize_image(DynamicImage::ImageRgba8(image), Some(region)).unwrap();
-        assert!(search_url(&result.text).is_some());
-        // This smoke test constructs the URL without opening a browser or sending text.
-    }
-
-    #[test]
     fn encodes_the_entire_query_and_skips_empty_text() {
         assert!(search_url(" \n\t").is_none());
-        let text = "難しい漢字\n&?# + 読み方";
+        let text = "漢字 &意味? #1\n二行目 + 読み方";
         let url = url::Url::parse(&search_url(text).unwrap()).unwrap();
         assert_eq!(url.host_str(), Some("www.google.com"));
         assert_eq!(url.path(), "/search");
@@ -404,50 +476,6 @@ mod tests {
             url.query_pairs().collect::<Vec<_>>(),
             vec![("q".into(), text.into())]
         );
-        assert!(url.fragment().is_none());
-    }
-
-    #[test]
-    fn selection_is_direction_independent_and_rejects_clicks() {
-        let mut selection = Selection {
-            size: (1000, 500),
-            start: Some((800, 400)),
-            end: (100, 50),
-            ..Default::default()
-        };
-        let region = selection.region().unwrap();
-        assert_eq!((region.x, region.y), (0.1, 0.1));
-        assert!((region.width - 0.7).abs() < 1e-10);
-        assert!((region.height - 0.7).abs() < 1e-10);
-        selection.end = (800, 400);
-        assert!(selection.region().is_none());
-    }
-
-    #[test]
-    fn clamps_signed_mouse_coordinates_to_the_image() {
-        let selection = Selection {
-            size: (100, 50),
-            ..Default::default()
-        };
-        assert_eq!(
-            selection.point(LPARAM(((-20i16 as u16 as u32) | (80u32 << 16)) as isize)),
-            (0, 50)
-        );
-    }
-
-    #[test]
-    fn cancellation_invalidates_a_draft_before_queued_mouse_up() {
-        let mut selection = Selection {
-            start: Some((0, 0)),
-            end: (100, 100),
-            size: (100, 100),
-            ..Default::default()
-        };
-        selection.result = selection.region();
-        selection.cancel();
-        assert!(selection.closing);
-        assert!(selection.start.is_none());
-        assert!(selection.region().is_none());
-        assert!(selection.result.is_none());
+        assert_eq!(url.fragment(), None);
     }
 }
