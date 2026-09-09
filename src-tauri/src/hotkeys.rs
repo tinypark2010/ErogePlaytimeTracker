@@ -74,7 +74,7 @@ impl HotkeyService {
                                     );
                                 }
                             }
-                            2 => crate::game_ocr::start(tracker.clone(), busy.clone()),
+                            2 => crate::game_ocr::start(app.clone(), tracker.clone(), busy.clone()),
                             _ => {}
                         }
                     } else {

@@ -23,7 +23,8 @@
     pendingPage: Page | null = null,
     pendingReload = false,
     gameReturnPage: 'library' | 'statistics' = 'library',
-    importNotice: BackupImportNotice | null = null;
+    importNotice: BackupImportNotice | null = null,
+    gameOcrError = '';
   function goTo(next: Page, shouldReload = false) {
     if (page === 'settings' && next !== 'settings' && settingsDirty) {
       pendingPage = next;
@@ -68,12 +69,20 @@
       .catch(() => {});
     const timer = setInterval(() => api.status().then(updateStatus), 3000);
     let off = () => {};
+    let offOcr = () => {};
+    let destroyed = false;
     listen<TrackingStatus>('tracking-status', (e) => updateStatus(e.payload)).then(
       (f) => (off = f),
     );
+    listen<string>('game-ocr-error', (e) => (gameOcrError = e.payload)).then((f) => {
+      if (destroyed) f();
+      else offOcr = f;
+    });
     return () => {
+      destroyed = true;
       clearInterval(timer);
       off();
+      offOcr();
     };
   });
 </script>
@@ -102,6 +111,13 @@
   </div>
 </header>
 <main>
+  {#if gameOcrError}<div class="app-notice warning" role="alert">
+      <div>
+        <strong>ゲーム画面のOCR検索</strong>
+        <p>{gameOcrError}</p>
+      </div>
+      <button type="button" aria-label="通知を閉じる" onclick={() => (gameOcrError = '')}>×</button>
+    </div>{/if}
   {#if importNotice}<div class="app-notice" class:warning={!importNotice.success} role="status">
       <div>
         <strong

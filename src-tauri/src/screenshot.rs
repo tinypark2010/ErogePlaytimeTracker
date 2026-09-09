@@ -12,21 +12,63 @@ pub(crate) fn capture_error_message(error: &anyhow::Error) -> &'static str {
 }
 
 #[cfg(windows)]
-pub struct CapturedGame {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GameCaptureTarget {
     pub hwnd: windows::Win32::Foundation::HWND,
-    pub origin: windows::Win32::Foundation::POINT,
-    pub image: image::RgbaImage,
+    pub bounds: windows::Win32::Foundation::RECT,
+    pub size: (u32, u32),
     game_id: i64,
     session_id: i64,
 }
 
 #[cfg(windows)]
-pub fn capture_game(tracker: &TrackingService) -> anyhow::Result<CapturedGame> {
+impl GameCaptureTarget {
+    pub fn is_current(&self) -> bool {
+        self.hwnd == unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }
+            && client_geometry(self.hwnd).is_ok_and(|geometry| geometry == (self.bounds, self.size))
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn client_geometry(
+    hwnd: windows::Win32::Foundation::HWND,
+) -> anyhow::Result<(windows::Win32::Foundation::RECT, (u32, u32))> {
     use windows::Win32::{
         Foundation::{POINT, RECT},
         Graphics::Gdi::ClientToScreen,
-        UI::WindowsAndMessaging::{GetClientRect, GetForegroundWindow},
+        UI::WindowsAndMessaging::GetClientRect,
     };
+    let mut rect = RECT::default();
+    unsafe { GetClientRect(hwnd, &mut rect)? };
+    let size = (rect.right - rect.left, rect.bottom - rect.top);
+    anyhow::ensure!(size.0 > 0 && size.1 > 0, "ゲーム画面のサイズが不正です");
+    let mut start = POINT {
+        x: rect.left,
+        y: rect.top,
+    };
+    let mut end = POINT {
+        x: rect.right,
+        y: rect.bottom,
+    };
+    anyhow::ensure!(
+        unsafe { ClientToScreen(hwnd, &mut start) }.as_bool()
+            && unsafe { ClientToScreen(hwnd, &mut end) }.as_bool(),
+        "ゲーム画面の位置を取得できません"
+    );
+    Ok((
+        RECT {
+            left: start.x,
+            top: start.y,
+            right: end.x,
+            bottom: end.y,
+        },
+        (size.0 as u32, size.1 as u32),
+    ))
+}
+
+#[cfg(windows)]
+pub fn focused_target(tracker: &TrackingService) -> anyhow::Result<GameCaptureTarget> {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
     let hwnd = unsafe { GetForegroundWindow() };
     let (game_id, session_id) = tracker
         .focused_game()
@@ -35,32 +77,38 @@ pub fn capture_game(tracker: &TrackingService) -> anyhow::Result<CapturedGame> {
         !hwnd.is_invalid() && hwnd == unsafe { GetForegroundWindow() },
         "フォアグラウンドで計測中のゲームがありません"
     );
-    let mut origin = POINT::default();
+    let (bounds, size) = client_geometry(hwnd)?;
+    let target = GameCaptureTarget {
+        hwnd,
+        bounds,
+        size,
+        game_id,
+        session_id,
+    };
     anyhow::ensure!(
-        unsafe { ClientToScreen(hwnd, &mut origin) }.as_bool(),
-        "ゲーム画面の位置を取得できません"
+        target.is_current() && tracker.focused_game() == Some((game_id, session_id)),
+        "取得中にゲーム画面が切り替わりました"
     );
-    let (pixels, width, height) = capture_window(hwnd)?;
-    let mut current_origin = POINT::default();
-    let mut rect = RECT::default();
+    Ok(target)
+}
+
+#[cfg(windows)]
+pub struct CapturedGame {
+    pub target: GameCaptureTarget,
+    pub image: image::RgbaImage,
+}
+
+#[cfg(windows)]
+pub fn capture_game(tracker: &TrackingService) -> anyhow::Result<CapturedGame> {
+    let target = focused_target(tracker)?;
+    let (pixels, width, height) = capture_window(target.hwnd)?;
     anyhow::ensure!(
-        hwnd == unsafe { GetForegroundWindow() }
-            && tracker.focused_game() == Some((game_id, session_id))
-            && unsafe { ClientToScreen(hwnd, &mut current_origin) }.as_bool()
-            && unsafe { GetClientRect(hwnd, &mut rect) }.is_ok()
-            && current_origin == origin
-            && (rect.right - rect.left, rect.bottom - rect.top) == (width as i32, height as i32),
+        focused_target(tracker)? == target && target.size == (width, height),
         "取得中にゲーム画面が切り替わりました"
     );
     let image = image::RgbaImage::from_raw(width, height, pixels)
         .ok_or_else(|| anyhow::anyhow!("ゲーム画面を読み取れません"))?;
-    Ok(CapturedGame {
-        hwnd,
-        origin,
-        image,
-        game_id,
-        session_id,
-    })
+    Ok(CapturedGame { target, image })
 }
 
 #[cfg(windows)]
@@ -70,12 +118,12 @@ pub fn capture_focused(
     tracker: &TrackingService,
     root: &Path,
 ) -> anyhow::Result<()> {
-    let CapturedGame {
+    let CapturedGame { target, image } = capture_game(tracker)?;
+    let GameCaptureTarget {
         game_id,
         session_id,
-        image,
         ..
-    } = capture_game(tracker)?;
+    } = target;
     let (width, height) = image.dimensions();
     let directory = root.join(game_id.to_string());
     std::fs::create_dir_all(&directory)?;
