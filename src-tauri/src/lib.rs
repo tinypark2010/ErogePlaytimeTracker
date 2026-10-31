@@ -9,6 +9,7 @@ mod models;
 mod ocr;
 mod pause_icons;
 mod screenshot;
+mod startup;
 mod thumbnail;
 mod tracking;
 mod update_notice;
@@ -44,6 +45,7 @@ impl AppState {
 }
 pub fn run() {
     tauri::Builder::default()
+        .manage(startup::restart_environment(tauri::Env::default()))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -154,6 +156,15 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+            // Autostart may start the app straight into the tray so a login does not
+            // interrupt the desktop. Manual launches always show the window. The window
+            // starts hidden so the tray-only start cannot flash on screen first.
+            let launched_by_autostart = std::env::args_os().any(|argument| argument == "--autostart");
+            if !(launched_by_autostart && settings.autostart && settings.start_minimized)
+                && let Some(window) = app.get_webview_window("main")
+            {
+                window.show()?;
+            }
             // Only successful installed-app starts may create/advance notice state.
             // Development runs must not acknowledge the user's installed release.
             let update_notices = if cfg!(debug_assertions) {
