@@ -6,6 +6,7 @@
   import { imageSrc } from '../lib/time';
   import type { StatisticsPeriodInput, StatisticsPeriodKind, StatisticsReport } from '../lib/types';
   import PlaytimeTrend from './PlaytimeTrend.svelte';
+  import { loadRememberedPeriod, saveRememberedPeriod } from '../lib/statisticsPeriod';
 
   export let openGame: (id: number) => void;
   export let trackingActive = false;
@@ -25,6 +26,8 @@
   let requestSequence = 0;
   let loadedKey = '';
   let availableYears = [currentYear];
+  let viewLoaded = false;
+  let savedViewJson = '';
 
   $: maximumPlaytimeSeconds = (report?.games ?? []).reduce(
     (maximum, game) => Math.max(maximum, game.playtime_seconds),
@@ -32,11 +35,22 @@
   );
   $: request = periodInput(kind, selectedYear, selectedMonth, selectedRecentDays);
   $: requestKey = `${request.kind}|${request.year ?? ''}|${request.month ?? ''}|${request.days ?? ''}|${calculationKey}`;
-  $: if (requestKey !== loadedKey) {
+  // 口径が変わったら保存する。月・年は年月を保存せず、次回起動時に現在の年月を使う。
+  // 画面を開くたびに同じ値を書き直さないよう、直前の保存値と比べる。
+  $: if (viewLoaded) {
+    const next = JSON.stringify({ kind, recentDays: selectedRecentDays });
+    if (next !== savedViewJson) {
+      savedViewJson = next;
+      api.setStatisticsView({ kind, recentDays: selectedRecentDays }).catch(() => undefined);
+    }
+  }
+  $: if (viewLoaded && requestKey !== loadedKey) {
     loadedKey = requestKey;
     report = null;
     load(request);
   }
+  // 選んだ年月を覚えておき、画面を移動して戻っても同じ期間を開く。
+  $: if (viewLoaded) saveRememberedPeriod({ year: selectedYear, month: selectedMonth });
   $: minimumYear = Math.min(...availableYears);
   $: canMoveBackward =
     kind === 'month'
@@ -112,6 +126,29 @@
   }
 
   onMount(() => {
+    // 保存された口径を復元する。月・年は現在の年月から始める。
+    api
+      .statisticsView()
+      .then((saved) => {
+        kind = saved.kind;
+        selectedRecentDays = saved.recentDays;
+        // 同じ起動中に一度でも年月を選んでいれば、それを使い続ける。
+        // 未来の年月（時計の変更など）は選べないので、その場合は現在へ戻す。
+        const remembered = loadRememberedPeriod();
+        const rememberedIsCurrent = (period: { year: number; month: number }) =>
+          period.year < currentYear ||
+          (period.year === currentYear && period.month <= currentMonth);
+        const usable = remembered && rememberedIsCurrent(remembered) ? remembered : null;
+        selectedYear = usable?.year ?? currentYear;
+        selectedMonth = usable?.month ?? currentMonth;
+        savedViewJson = JSON.stringify({ kind, recentDays: selectedRecentDays });
+      })
+      .catch(() => undefined)
+      .then(() => {
+        viewLoaded = true;
+        loadedKey = requestKey;
+        load(request);
+      });
     const timer = setInterval(() => {
       if (trackingActive) load();
     }, 30_000);
