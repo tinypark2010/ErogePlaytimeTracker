@@ -78,3 +78,7 @@ jobs:
           cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
           cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Build Windows application
+        # Reuse the frontend assets and license notices generated above.
+        run: npm run tauri build -- --debug --no-bundle --config '{"build":{"beforeBuildCommand":null}}' -- --locked
