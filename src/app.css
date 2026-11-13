@@ -964,6 +964,101 @@ header > nav {
   gap: 0.35rem;
   min-width: 0;
 }
+.filter-control {
+  position: relative;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.filter-control > span {
+  color: #aaa3b4;
+  font-size: 12px;
+}
+.filter-trigger {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* toolbar 内の input/select/button は padding と box-sizing が異なり、
+   高さが 36〜41px で揃わない。同じ高さに固定して見た目を揃える。 */
+.toolbar input,
+.toolbar select,
+.toolbar > button,
+.toolbar .filter-trigger {
+  box-sizing: border-box;
+  height: 2.6em;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.filter-menu {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 0.3rem;
+  margin-top: 0.25rem;
+  border: 1px solid var(--border, #3a3547);
+  border-radius: 6px;
+  background: var(--panel, #1a1822);
+  box-shadow: 0 8px 24px #0007;
+}
+/* toolbar 内の label は grid だが、チェックボックス付きの選択肢は
+   チェックボックスと文字を同じ行に並べたいので強制的に flex にする。
+   `.toolbar label` より優先度を上げるため `.toolbar` を付ける。 */
+.toolbar .filter-option,
+.filter-all {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.35rem 0.4rem;
+  border-radius: 4px;
+  font-size: 13px;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.filter-option:hover,
+.filter-all:hover {
+  background: #ffffff10;
+}
+.filter-option input {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  min-width: 0;
+  margin: 0;
+  order: -1;
+}
+/* `.toolbar label > span` の 12px グレーを選択肢の文字には適用しない。
+   選択肢の文字は「すべてxx」と同じ見た目にする。
+   `.toolbar input { flex: 1 }` も効かないよう、チェックボックスは固定サイズにする。 */
+.toolbar .filter-option > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: inherit;
+  font-size: inherit;
+  /* 小書き仮名を含む行でも高さを揃え、行の高さがばらつかないようにする。 */
+  line-height: 1.4;
+}
+.toolbar .filter-option > input {
+  flex: 0 0 auto;
+  width: 13px;
+  min-width: 0;
+}
+/* 選択肢の文字が「すべてxx」と左端で揃うよう、同じ幅の空きを確保する。 */
+.filter-all {
+  padding-left: calc(0.4rem + 13px + 0.45rem);
+}
 .toolbar label > span,
 .view-control > span {
   color: #aaa3b4;
